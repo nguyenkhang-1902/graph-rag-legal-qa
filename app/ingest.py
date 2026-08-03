@@ -40,6 +40,56 @@ logger = logging.getLogger(__name__)
 # Duong dan mac dinh cho savepoint - da nam trong .gitignore (`.state/`).
 DEFAULT_STATE_FILE = Path(".state") / "ingest_checkpoint.json"
 
+
+class BatchSizeMismatchError(RuntimeError):
+    """Raise khi resume voi `batch_size` KHAC voi luc checkpoint duoc ghi.
+
+    Review finding sau T009d: checkpoint chi ghi "last_completed_batch=N"
+    (mot INDEX) - N chi con dung neu file duoc chia batch theo CUNG mot
+    batch_size nhu luc ghi checkpoint do. Doi batch_size (vd sua
+    --batch-size hoac INGEST_BATCH_SIZE giua hai lan chay) lam "batch N+1"
+    theo cach chia MOI tro thanh mot doan file HOAN TOAN KHAC voi doan file
+    that su con thieu - im lang bo sot hang nghin van ban ma khong loi,
+    khong canh bao (xem finding chi tiet).
+
+    Theo constitution Dieu 1 (KISS - "tha crash con hon lam sai trong im
+    lang") va brief T009c/task-2e-brief.md: KHONG tu dong hoa giai/di chuyen
+    batch_size - chi phat hien va TU CHOI chay, bat operator tu quyet dinh
+    (vd xoa checkpoint de bat dau lai tu dau neu co y doi batch_size).
+    """
+
+
+def _check_batch_size_matches_checkpoint(
+    state_store: IngestCheckpointStore, effective_batch_size: int
+) -> None:
+    """Neu day la lan resume (da co checkpoint) VA checkpoint co ghi lai
+    batch_size tung dung, so sanh voi `effective_batch_size` cua lan chay
+    nay - khac nhau thi raise BatchSizeMismatchError (tu choi chay tiep),
+    KHONG tu dong xu ly/di chuyen (xem docstring BatchSizeMismatchError).
+
+    Checkpoint cu (ghi truoc khi truong `batch_size` ton tai) se khong co
+    truong nay -> get_last_batch_size() tra ve None -> KHONG the so sanh,
+    bo qua kiem tra nay (khong the phat hien mismatch tu du lieu khong co,
+    va chan resume trong truong hop nay se pha vo moi checkpoint cu mot
+    cach khong can thiet).
+    """
+    recorded_batch_size = state_store.get_last_batch_size()
+    if recorded_batch_size is None:
+        return
+    if recorded_batch_size != effective_batch_size:
+        message = (
+            "batch_size KHONG khop voi checkpoint: checkpoint duoc ghi voi "
+            f"batch_size={recorded_batch_size}, nhung lan chay nay dang "
+            f"dung batch_size={effective_batch_size}. Resume voi batch_size "
+            "khac se tinh sai boundary cua batch (batch N+1 se tro toi mot "
+            "doan file HOAN TOAN KHAC), co the im lang bo sot hang nghin "
+            "van ban. TU CHOI chay tiep - hay dung lai batch_size cu "
+            f"({recorded_batch_size}), hoac neu that su muon doi batch_size "
+            "thi xoa file checkpoint de bat dau ingest lai tu dau."
+        )
+        logger.error(message)
+        raise BatchSizeMismatchError(message)
+
 # `scripts/fetch_zalo_legal_corpus.py` ghi mot README.md (giay phep/nguon)
 # vao CUNG thu muc voi cac file .md van ban that - khong phai mot van ban
 # luat, phai loai khoi danh sach discover (khong lam vong lap crash, chi
@@ -125,6 +175,13 @@ def run_ingest(
     voi chinh muc dich cua savepoint - xem brief buoc 7). Batch dang xu ly
     luc crash SE KHONG duoc mark_batch_done, nen lan chay lai se lam lai tu
     dau batch do (an toan vi upsert.py dung MERGE idempotent).
+
+    Khi day la mot lan RESUME (checkpoint da co san): neu `batch_size` cua
+    lan chay nay khac voi `batch_size` da ghi trong checkpoint, raise
+    BatchSizeMismatchError va TU CHOI chay tiep - resume voi batch_size
+    khac se tinh sai boundary batch, co the im lang bo sot van ban (xem
+    review finding + BatchSizeMismatchError). Day la "phat hien va tu
+    choi", KHONG tu dong hoa giai batch_size.
     """
     owns_client = client is None
     client = client if client is not None else Neo4jClient()
@@ -144,6 +201,9 @@ def run_ingest(
 
         last_completed = state_store.get_last_completed_batch()
         start_batch = 0 if last_completed is None else last_completed + 1
+
+        if last_completed is not None:
+            _check_batch_size_matches_checkpoint(state_store, effective_batch_size)
 
         if start_batch > 0:
             logger.info(
@@ -175,7 +235,7 @@ def run_ingest(
                     )
                     raise
 
-            state_store.mark_batch_done(batch_index)
+            state_store.mark_batch_done(batch_index, effective_batch_size)
             duration = time.monotonic() - batch_start
             batch_durations.append(duration)
             remaining = total_batches - (batch_index + 1)

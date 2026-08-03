@@ -75,16 +75,50 @@ class IngestCheckpointStore:
             return None
         return int(value)
 
-    def mark_batch_done(self, batch_index: int) -> None:
-        """Ghi lai `batch_index` la batch cuoi cung DA hoan tat toan bo.
+    def get_last_batch_size(self) -> int | None:
+        """Tra ve `batch_size` da duoc dung de ghi batch cuoi cung DA hoan
+        tat (tham so `batch_size` cua lan goi `mark_batch_done` gan nhat),
+        hoac None neu chua co checkpoint hop le/file chua co truong nay
+        (checkpoint cu ghi truoc khi truong nay ton tai - coi nhu khong
+        biet, de caller (app/ingest.py) tu quyet dinh xu ly).
+
+        Ly do can ham nay (review finding sau T009d): checkpoint chi ghi
+        "last_completed_batch=N" khong du de resume dung - N la INDEX,
+        phu thuoc vao batch_size da dung de chia file luc ghi checkpoint
+        do. Neu lan resume dung batch_size KHAC, "batch N+1" theo cach chia
+        moi la mot doan file HOAN TOAN KHAC (co the bo sot hang nghin van
+        ban ma khong loi/khong canh bao). Ham nay cho phep caller phat hien
+        truong hop do TRUOC KHI resume (xem run_ingest trong app/ingest.py).
+        """
+        if not self.state_file.exists():
+            return None
+        try:
+            with open(self.state_file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        except (json.JSONDecodeError, OSError, UnicodeDecodeError):
+            return None
+        value = data.get("batch_size") if isinstance(data, dict) else None
+        if value is None:
+            return None
+        return int(value)
+
+    def mark_batch_done(self, batch_index: int, batch_size: int) -> None:
+        """Ghi lai `batch_index` la batch cuoi cung DA hoan tat toan bo,
+        CUNG VOI `batch_size` da dung de chia file thanh batch trong lan
+        chay nay.
 
         CHI duoc goi boi caller (app/ingest.py) SAU KHI moi van ban trong
         batch da duoc upsert thanh cong khong loi - ham nay khong tu kiem
         tra dieu do, chi ghi gia tri duoc truyen vao.
+
+        `batch_size` la bat buoc (khong co gia tri mac dinh) de khong caller
+        nao vo tinh quen truyen no roi lam mat kha nang phat hien mismatch
+        luc resume (xem get_last_batch_size() va run_ingest()).
         """
         self.state_file.parent.mkdir(parents=True, exist_ok=True)
         payload = {
             "last_completed_batch": batch_index,
+            "batch_size": batch_size,
             "updated_at": datetime.now(timezone.utc).isoformat(),
         }
 

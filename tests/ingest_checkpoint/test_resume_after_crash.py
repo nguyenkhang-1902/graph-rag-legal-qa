@@ -16,7 +16,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from app.ingest import run_ingest
+from app.ingest import BatchSizeMismatchError, run_ingest
 from app.ingest_checkpoint.state_store import IngestCheckpointStore
 
 _NUM_FILES = 8
@@ -141,3 +141,109 @@ def test_fault_actually_raises_on_the_targeted_document_call():
     # A different title does not trigger the fault.
     result = mock_client.run("MERGE (d:Document ...)", doc_id="y", title="Khác")
     assert result == []
+
+
+# --- Review finding: resuming with a DIFFERENT batch_size than the one --
+# --- that produced the checkpoint must be detected and refused, not -----
+# --- silently resumed against the wrong file slice. ----------------------
+
+
+def test_resume_with_different_batch_size_raises_and_refuses(tmp_path):
+    data_dir = tmp_path / "corpus"
+    _write_corpus(data_dir)
+
+    state_file = tmp_path / "state" / "ingest_checkpoint.json"
+    state_store = IngestCheckpointStore(state_file)
+
+    # Run 1: complete successfully with batch_size=3 (no fault) -> leaves a
+    # checkpoint recording batch_size=3.
+    mock_client_1 = MagicMock()
+    mock_client_1.run.return_value = []
+    run_ingest(
+        data_dir,
+        batch_size=_BATCH_SIZE,
+        client=mock_client_1,
+        state_store=state_store,
+    )
+    assert state_store.get_last_completed_batch() == 2  # 3 batches, all done
+
+    # Simulate: operator (or a changed INGEST_BATCH_SIZE env var) reruns
+    # with a DIFFERENT batch_size against the same checkpoint/state_store.
+    # This must be detected and refused - not silently resumed with wrong
+    # batch boundaries.
+    mock_client_2 = MagicMock()
+    mock_client_2.run.return_value = []
+    with pytest.raises(BatchSizeMismatchError, match="batch_size"):
+        run_ingest(
+            data_dir,
+            batch_size=_BATCH_SIZE + 1,
+            client=mock_client_2,
+            state_store=state_store,
+        )
+
+    # Nothing from run 2 should have been processed - it must refuse before
+    # touching any document.
+    assert mock_client_2.run.call_count == 0
+    # Checkpoint is unchanged by the refused run.
+    assert state_store.get_last_completed_batch() == 2
+
+
+def test_fresh_start_does_not_require_batch_size_match(tmp_path):
+    # No prior checkpoint at all -> nothing to compare batch_size against,
+    # so any batch_size is accepted on a fresh start.
+    data_dir = tmp_path / "corpus"
+    _write_corpus(data_dir)
+
+    state_file = tmp_path / "state" / "ingest_checkpoint.json"
+    state_store = IngestCheckpointStore(state_file)
+
+    mock_client = MagicMock()
+    mock_client.run.return_value = []
+
+    run_ingest(
+        data_dir,
+        batch_size=_BATCH_SIZE,
+        client=mock_client,
+        state_store=state_store,
+    )
+
+    assert state_store.get_last_completed_batch() == 2
+    assert state_store.get_last_batch_size() == _BATCH_SIZE
+
+
+def test_resume_with_same_batch_size_still_works(tmp_path):
+    # Resuming with the SAME batch_size as the checkpoint must NOT be
+    # falsely rejected (no false-positive mismatch).
+    data_dir = tmp_path / "corpus"
+    _write_corpus(data_dir)
+
+    titles = _titles()
+    fault_title = titles[7]
+
+    state_file = tmp_path / "state" / "ingest_checkpoint.json"
+    state_store = IngestCheckpointStore(state_file)
+
+    mock_client, fault_state = _make_faulty_client(fault_title)
+
+    with pytest.raises(RuntimeError, match="simulated crash"):
+        run_ingest(
+            data_dir,
+            batch_size=_BATCH_SIZE,
+            client=mock_client,
+            state_store=state_store,
+        )
+    assert state_store.get_last_completed_batch() == 1
+
+    fault_state["fault_active"] = False
+    mock_client.reset_mock()
+
+    # Same batch_size as before -> must resume normally, not raise
+    # BatchSizeMismatchError.
+    run_ingest(
+        data_dir,
+        batch_size=_BATCH_SIZE,
+        client=mock_client,
+        state_store=state_store,
+    )
+
+    assert state_store.get_last_completed_batch() == 2

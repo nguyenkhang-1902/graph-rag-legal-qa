@@ -37,7 +37,7 @@ def test_fresh_store_returns_none(tmp_path):
 def test_mark_batch_done_zero_then_read_back(tmp_path):
     store = IngestCheckpointStore(tmp_path / "checkpoint.json")
 
-    store.mark_batch_done(0)
+    store.mark_batch_done(0, batch_size=10)
 
     assert store.get_last_completed_batch() == 0
 
@@ -48,13 +48,13 @@ def test_mark_batch_done_zero_then_read_back(tmp_path):
 def test_multiple_sequential_mark_batch_done_reflects_latest(tmp_path):
     store = IngestCheckpointStore(tmp_path / "checkpoint.json")
 
-    store.mark_batch_done(0)
+    store.mark_batch_done(0, batch_size=10)
     assert store.get_last_completed_batch() == 0
 
-    store.mark_batch_done(1)
+    store.mark_batch_done(1, batch_size=10)
     assert store.get_last_completed_batch() == 1
 
-    store.mark_batch_done(5)
+    store.mark_batch_done(5, batch_size=10)
     assert store.get_last_completed_batch() == 5
 
 
@@ -65,7 +65,7 @@ def test_persists_across_new_store_instance_pointed_at_same_file(tmp_path):
     state_file = tmp_path / "checkpoint.json"
 
     writer = IngestCheckpointStore(state_file)
-    writer.mark_batch_done(3)
+    writer.mark_batch_done(3, batch_size=10)
 
     reader = IngestCheckpointStore(state_file)
     assert reader.get_last_completed_batch() == 3
@@ -78,8 +78,8 @@ def test_no_leftover_tmp_file_after_mark_batch_done(tmp_path):
     state_file = tmp_path / "checkpoint.json"
     store = IngestCheckpointStore(state_file)
 
-    store.mark_batch_done(0)
-    store.mark_batch_done(1)
+    store.mark_batch_done(0, batch_size=10)
+    store.mark_batch_done(1, batch_size=10)
 
     remaining_files = sorted(p.name for p in tmp_path.iterdir())
     assert remaining_files == ["checkpoint.json"]
@@ -89,7 +89,7 @@ def test_mark_batch_done_creates_parent_directory_if_missing(tmp_path):
     state_file = tmp_path / "nested" / "dir" / "checkpoint.json"
     store = IngestCheckpointStore(state_file)
 
-    store.mark_batch_done(2)
+    store.mark_batch_done(2, batch_size=10)
 
     assert state_file.exists()
     assert store.get_last_completed_batch() == 2
@@ -117,9 +117,46 @@ def test_after_corrupted_json_a_fresh_mark_batch_done_overwrites_it(tmp_path):
 
     assert store.get_last_completed_batch() is None
 
-    store.mark_batch_done(0)
+    store.mark_batch_done(0, batch_size=10)
 
     assert store.get_last_completed_batch() == 0
     # File giờ phải chứa JSON hợp lệ (đã bị ghi đè bởi mark_batch_done).
     data = json.loads(state_file.read_text(encoding="utf-8"))
     assert data["last_completed_batch"] == 0
+
+
+# --- batch_size round-trip (review finding: resume must detect a changed --
+# --- batch_size, or it silently maps "batch N+1" to the wrong file slice) -
+
+
+def test_batch_size_round_trips_through_mark_batch_done(tmp_path):
+    store = IngestCheckpointStore(tmp_path / "checkpoint.json")
+
+    assert store.get_last_batch_size() is None
+
+    store.mark_batch_done(0, batch_size=37)
+
+    assert store.get_last_batch_size() == 37
+
+
+def test_get_last_batch_size_reflects_latest_mark_batch_done_call(tmp_path):
+    store = IngestCheckpointStore(tmp_path / "checkpoint.json")
+
+    store.mark_batch_done(0, batch_size=10)
+    assert store.get_last_batch_size() == 10
+
+    store.mark_batch_done(1, batch_size=25)
+    assert store.get_last_batch_size() == 25
+
+
+def test_get_last_batch_size_none_when_field_missing_from_file(tmp_path):
+    # Checkpoint cu (ghi truoc khi truong "batch_size" ton tai) khong co
+    # truong nay - phai tra ve None (khong crash, khong bia so lieu).
+    state_file = tmp_path / "checkpoint.json"
+    state_file.write_text(
+        json.dumps({"last_completed_batch": 4}), encoding="utf-8"
+    )
+    store = IngestCheckpointStore(state_file)
+
+    assert store.get_last_completed_batch() == 4
+    assert store.get_last_batch_size() is None
