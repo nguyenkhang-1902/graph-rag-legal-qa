@@ -1,0 +1,307 @@
+"""Tests cho app/graph_store/upsert.py (T009).
+
+Khong co Neo4j that chay trong moi truong nay - cung tinh huong nhu T005
+(xem tests/graph_store/test_neo4j_client.py). Moi test o day mock
+`Neo4jClient.run` va kiem tra Cypher + tham so DUOC GUI, khong phai
+"Neo4j thuc thi dung hay khong" - hop ly de unit test bang mock (T005 da
+lam theo cach nay, tiep tuc quy uoc do o day).
+
+Cac case theo task-2d-brief.md:
+  1. Upsert van ban co Chapter/Article/Clause -> gui MERGE cho moi loai
+     node/canh BELONGS_TO (khong CREATE).
+  2. Upsert CUNG mot ParsedDocument hai lan -> gui CUNG cac cau lenh ca
+     hai lan (bang chung idempotent - khong the kiem tra graph that o day).
+  3. Van ban KHONG co Chapter -> Article gan BELONGS_TO thang vao Document.
+  4. upsert_references cho target chua ton tai: ON CREATE SET
+     is_external = true, canh REFERENCES cung la MERGE.
+  5. Goi upsert_references hai lan cho cung (source, target, raw_text) ->
+     gui cung Cypher/tham so ca hai lan (idempotent).
+  6. full_text KHONG BAO GIO xuat hien trong tham so gui cho Neo4j (chi
+     noi_dung_preview) - day la test duy nhat co the kiem tra phan nay cua
+     amendment T008 (structure_parser.py test khong biet gi ve Neo4j).
+  7. "Nang cap" placeholder -> Article that: cau Article MERGE set
+     is_external = false VO DIEU KIEN (khong phai ON CREATE), khac voi
+     is_external = true tren target cua upsert_references (CO ON CREATE).
+     Day la kiem tra CAU TRUC QUERY, khong mo phong MERGE semantics that
+     cua Neo4j bang mock graph (khong the lam duoc voi mock don gian).
+"""
+from unittest.mock import MagicMock
+
+from app.extraction.reference_extractor import ExtractedReference
+from app.extraction.structure_parser import Article, Chapter, Clause, ParsedDocument
+from app.graph_store.upsert import upsert_document, upsert_references
+
+
+def _make_mock_client():
+    """Neo4jClient that co method `run(query, **params)` - upsert.py chi
+    goi qua interface nay, nen mock don gian nay du (giong cach T005 mock
+    driver/session, o day mock thang o muc Neo4jClient vi do la dependency
+    truc tiep cua upsert.py)."""
+    return MagicMock()
+
+
+def _queries_sent(mock_client) -> list[str]:
+    return [c.args[0] for c in mock_client.run.call_args_list]
+
+
+# --- Fixtures: ParsedDocument voi Chapter/Article/Clause ------------------
+
+
+def _build_parsed_with_chapters() -> ParsedDocument:
+    clause = Clause(
+        clause_id="luat-test_dieu-1_khoan-1",
+        so_khoan=1,
+        noi_dung="Noi dung khoan mot day du, khong truncate.",
+    )
+    article = Article(
+        article_id="luat-test_dieu-1",
+        so_dieu=1,
+        noi_dung_preview="Preview ngan.",
+        full_text="Day la full_text DAY DU cua Dieu 1 - TUYET DOI khong duoc"
+        " xuat hien trong bat ky tham so nao gui cho Neo4j.",
+        clauses=[clause],
+    )
+    chapter = Chapter(
+        chapter_id="luat-test_chuong-1",
+        so_chuong=1,
+        tieu_de="NHUNG QUY DINH CHUNG",
+        articles=[article],
+    )
+    return ParsedDocument(
+        doc_id="luat-test", title="Luat Test", chapters=[chapter], articles=[]
+    )
+
+
+def _build_parsed_without_chapters() -> ParsedDocument:
+    article = Article(
+        article_id="nghi-dinh-test_dieu-1",
+        so_dieu=1,
+        noi_dung_preview="Preview ngan khong chuong.",
+        full_text="Full text day du khong co chuong.",
+        clauses=[],
+    )
+    return ParsedDocument(
+        doc_id="nghi-dinh-test",
+        title="Nghi Dinh Test",
+        chapters=[],
+        articles=[article],
+    )
+
+
+# --- Case 1: MERGE cho moi loai node/canh, khong CREATE --------------------
+
+
+def test_upsert_document_sends_merge_for_every_node_and_edge():
+    client = _make_mock_client()
+    parsed = _build_parsed_with_chapters()
+
+    upsert_document(client, parsed, batch_id="batch-001")
+
+    queries = _queries_sent(client)
+    assert len(queries) == 4  # Document, Chapter, Article, Clause
+
+    for query in queries:
+        assert "MERGE" in query
+        assert "CREATE" not in query  # khong bao gio dung CREATE (idempotent)
+
+    document_query, chapter_query, article_query, clause_query = queries
+    assert "MERGE (d:Document {doc_id: $doc_id})" in document_query
+
+    assert "MERGE (c:Chapter {chapter_id: $chapter_id})" in chapter_query
+    assert "MERGE (c)-[:BELONGS_TO]->(parent)" in chapter_query
+    assert "MATCH (parent:Document {doc_id: $doc_id})" in chapter_query
+
+    assert "MERGE (a:Article {article_id: $article_id})" in article_query
+    assert "MERGE (a)-[:BELONGS_TO]->(parent)" in article_query
+    assert "MATCH (parent:Chapter {chapter_id: $parent_id})" in article_query
+
+    assert "MERGE (cl:Clause {clause_id: $clause_id})" in clause_query
+    assert "MERGE (cl)-[:BELONGS_TO]->(parent)" in clause_query
+    assert "MATCH (parent:Article {article_id: $parent_id})" in clause_query
+
+    # Tham so dung: Document
+    doc_call = client.run.call_args_list[0]
+    assert doc_call.kwargs == {
+        "doc_id": "luat-test",
+        "title": "Luat Test",
+        "batch_id": "batch-001",
+    }
+
+    # Tham so dung: Chapter
+    chapter_call = client.run.call_args_list[1]
+    assert chapter_call.kwargs == {
+        "doc_id": "luat-test",
+        "chapter_id": "luat-test_chuong-1",
+        "so_chuong": 1,
+        "tieu_de": "NHUNG QUY DINH CHUNG",
+    }
+
+    # Tham so dung: Article (chu y is_external duoc set qua trong query
+    # string, khong phai tham so - kiem tra rieng o case 7 duoi)
+    article_call = client.run.call_args_list[2]
+    assert article_call.kwargs == {
+        "parent_id": "luat-test_chuong-1",
+        "article_id": "luat-test_dieu-1",
+        "so_dieu": 1,
+        "noi_dung_preview": "Preview ngan.",
+    }
+
+    # Tham so dung: Clause (noi_dung KHONG bi truncate)
+    clause_call = client.run.call_args_list[3]
+    assert clause_call.kwargs == {
+        "parent_id": "luat-test_dieu-1",
+        "clause_id": "luat-test_dieu-1_khoan-1",
+        "so_khoan": 1,
+        "noi_dung": "Noi dung khoan mot day du, khong truncate.",
+    }
+
+
+# --- Case 2: idempotency - goi hai lan gui cung cau lenh -------------------
+
+
+def test_upsert_document_called_twice_sends_identical_calls():
+    client = _make_mock_client()
+    parsed = _build_parsed_with_chapters()
+
+    upsert_document(client, parsed, batch_id="batch-001")
+    first_call_list = list(client.run.call_args_list)
+
+    upsert_document(client, parsed, batch_id="batch-001")
+    second_call_list = list(client.run.call_args_list)[len(first_call_list) :]
+
+    assert first_call_list == second_call_list
+
+
+# --- Case 3: khong co Chapter -> Article gan thang vao Document ------------
+
+
+def test_upsert_document_without_chapters_attaches_article_to_document():
+    client = _make_mock_client()
+    parsed = _build_parsed_without_chapters()
+
+    upsert_document(client, parsed, batch_id="batch-002")
+
+    queries = _queries_sent(client)
+    assert len(queries) == 2  # Document, Article (khong Chapter, khong Clause)
+
+    document_query, article_query = queries
+    assert "MERGE (d:Document {doc_id: $doc_id})" in document_query
+    assert "MATCH (parent:Document {doc_id: $parent_id})" in article_query
+    assert "MERGE (a:Article {article_id: $article_id})" in article_query
+    assert "MERGE (a)-[:BELONGS_TO]->(parent)" in article_query
+
+    article_call = client.run.call_args_list[1]
+    assert article_call.kwargs["parent_id"] == "nghi-dinh-test"
+    assert article_call.kwargs["article_id"] == "nghi-dinh-test_dieu-1"
+
+
+# --- Case 4: upsert_references, target chua ton tai ------------------------
+
+
+def test_upsert_references_sets_is_external_via_on_create_and_merges_edge():
+    client = _make_mock_client()
+    references = [
+        ExtractedReference(
+            target_article_id="luat-khac_dieu-9", raw_text="Điều 9 Luật Khác"
+        )
+    ]
+
+    upsert_references(client, article_id="luat-test_dieu-1", references=references)
+
+    assert client.run.call_count == 1
+    query = client.run.call_args_list[0].args[0]
+    kwargs = client.run.call_args_list[0].kwargs
+
+    assert "MATCH (source:Article {article_id: $source_id})" in query
+    assert "MERGE (target:Article {article_id: $target_id})" in query
+    assert "ON CREATE SET target.is_external = true" in query
+    assert "MERGE (source)-[r:REFERENCES]->(target)" in query
+    assert "CREATE" not in query.replace(
+        "ON CREATE", ""
+    )  # khong CREATE tran lan, chi ON CREATE SET
+
+    assert kwargs == {
+        "source_id": "luat-test_dieu-1",
+        "target_id": "luat-khac_dieu-9",
+        "raw_text": "Điều 9 Luật Khác",
+    }
+
+
+# --- Case 5: upsert_references idempotent cho cung mot triple --------------
+
+
+def test_upsert_references_called_twice_for_same_triple_sends_identical_calls():
+    client = _make_mock_client()
+    references = [
+        ExtractedReference(target_article_id="luat-khac_dieu-9", raw_text="Điều 9")
+    ]
+
+    upsert_references(client, article_id="luat-test_dieu-1", references=references)
+    first_call = client.run.call_args_list[0]
+
+    upsert_references(client, article_id="luat-test_dieu-1", references=references)
+    second_call = client.run.call_args_list[1]
+
+    assert first_call == second_call
+
+
+# --- Case 6: full_text KHONG BAO GIO duoc gui cho Neo4j ---------------------
+
+
+def test_full_text_is_never_sent_to_neo4j():
+    client = _make_mock_client()
+    parsed = _build_parsed_with_chapters()
+    forbidden_value = parsed.chapters[0].articles[0].full_text
+    assert forbidden_value  # sanity: fixture thuc su co full_text khac rong
+
+    upsert_document(client, parsed, batch_id="batch-001")
+
+    for call_args in client.run.call_args_list:
+        query = call_args.args[0]
+        kwargs = call_args.kwargs
+        assert "full_text" not in query
+        assert "full_text" not in kwargs
+        for value in kwargs.values():
+            assert value != forbidden_value
+
+
+# --- Case 7: nang cap placeholder -> Article that ---------------------------
+
+
+def test_article_upsert_sets_is_external_false_unconditionally():
+    # Cau Article MERGE (ca hai bien the: duoi Chapter va duoi Document
+    # truc tiep) phai SET is_external = false VO DIEU KIEN (khong dang sau
+    # "ON CREATE") - de mot Article that co the "nang cap" mot placeholder
+    # da duoc tao truoc do boi upsert_references (xem case 4/8 tren, va
+    # "Ordering guarantee to preserve" trong brief). Day la test cau truc
+    # query (string), khong phai mo phong MERGE semantics that cua Neo4j.
+    client = _make_mock_client()
+
+    parsed_with_chapter = _build_parsed_with_chapters()
+    upsert_document(client, parsed_with_chapter, batch_id="batch-001")
+    article_under_chapter_query = client.run.call_args_list[2].args[0]
+
+    client2 = _make_mock_client()
+    parsed_without_chapter = _build_parsed_without_chapters()
+    upsert_document(client2, parsed_without_chapter, batch_id="batch-002")
+    article_under_document_query = client2.run.call_args_list[1].args[0]
+
+    for query in (article_under_chapter_query, article_under_document_query):
+        assert "a.is_external = false" in query
+        # Khong duoc co "ON CREATE SET a.is_external" hay bat ky bien the
+        # nao gate is_external=false phia sau ON CREATE - phai la SET vo
+        # dieu kien.
+        assert "ON CREATE SET a.is_external" not in query
+
+    # Doi chieu: target cua upsert_references (tinh huong placeholder) THI
+    # PHAI duoc gate boi ON CREATE - khac han voi Article that o tren.
+    ref_client = _make_mock_client()
+    upsert_references(
+        ref_client,
+        article_id="luat-test_dieu-1",
+        references=[
+            ExtractedReference(target_article_id="luat-khac_dieu-9", raw_text="x")
+        ],
+    )
+    reference_query = ref_client.run.call_args_list[0].args[0]
+    assert "ON CREATE SET target.is_external = true" in reference_query
