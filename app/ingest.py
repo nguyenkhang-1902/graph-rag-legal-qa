@@ -20,17 +20,29 @@ Vi du:
 
 `--incremental` (T020, Phase 5) CHUA duoc implement o day - out of scope
 task nay (xem task-2e-brief.md).
+
+task-2f: corpus that xac nhan MOI file la DUY NHAT mot Dieu (khong phai
+mot van ban nhieu Dieu nhu structure_parser.py's parse_document() gia
+dinh ban dau) - module nay goi `parse_article_chunk()` thay vi
+`parse_document()`, tach doc_id/so_dieu tu TEN FILE (xem
+`parse_filename_doc_prefix_and_so_dieu()`).
 """
 from __future__ import annotations
 
 import argparse
 import logging
+import re
 import time
 from pathlib import Path
 
 from app import config
 from app.extraction.reference_extractor import extract_references
-from app.extraction.structure_parser import Article, ParsedDocument, parse_document
+from app.extraction.slugify import slugify_doc_name
+from app.extraction.structure_parser import (
+    Article,
+    ParsedDocument,
+    parse_article_chunk,
+)
 from app.graph_store.neo4j_client import Neo4jClient
 from app.graph_store.upsert import upsert_document, upsert_references
 from app.ingest_checkpoint.state_store import IngestCheckpointStore
@@ -133,16 +145,46 @@ def _all_articles(parsed: ParsedDocument) -> list[Article]:
     return articles
 
 
+# Ten file that (khong duoi): "{doc_prefix}_{so_dieu}.md" (task-2f-brief.md
+# - corpus that xac nhan MOI file la DUY NHAT mot Dieu, doc_prefix la phan
+# nhom cac file thuoc CUNG mot van ban cha). ".+" tham lam nen luon khop
+# voi cum "_<so>" CUOI CUNG cua ten file, dung ke ca khi doc_prefix chinh no
+# cung chua dau "_" (vd "01_2020_tt-btp_7" -> prefix "01_2020_tt-btp", so
+# "7", KHONG bi cat nham o dau "_" dau tien).
+_FILENAME_STEM_RE = re.compile(r"^(.+)_(\d+)$")
+
+
+def parse_filename_doc_prefix_and_so_dieu(file_path: Path) -> tuple[str, int]:
+    """Tach `(doc_prefix, filename_so_dieu)` tu TEN FILE (khong duoi) cua
+    `file_path`, vd "01_2020_tt-btp_7.md" -> ("01_2020_tt-btp", 7).
+
+    Neu ten file KHONG dung dinh dang mong doi "{prefix}_{digits}.md" ->
+    raise ValueError ro rang, neu ten file (mention ro file nao) - KHONG
+    im lang bo qua file nay (cung nguyen tac "crash lon tieng thay vi lam
+    sai trong im lang" nhu BatchSizeMismatchError, xem docstring do)."""
+    stem = file_path.stem
+    match = _FILENAME_STEM_RE.match(stem)
+    if not match:
+        raise ValueError(
+            "Ten file khong dung dinh dang mong doi '{doc_prefix}_{so_dieu}"
+            f".md': {file_path} - khong the tach doc_prefix/so_dieu tu "
+            f"stem={stem!r}."
+        )
+    doc_prefix = match.group(1)
+    filename_so_dieu = int(match.group(2))
+    return doc_prefix, filename_so_dieu
+
+
 def _ingest_one_file(client: Neo4jClient, file_path: Path, batch_index: int) -> None:
-    """Doc + parse + upsert MOT van ban, roi extract + upsert cac trich dan
-    REFERENCES cua tung Dieu (ca Dieu truc tiep lan Dieu trong Chuong)."""
+    """Doc + parse + upsert MOT file (= MOT Dieu, xem task-2f-brief.md), roi
+    extract + upsert cac trich dan REFERENCES cua Dieu do."""
     text = file_path.read_text(encoding="utf-8")
-    # Ten file (khong duoi) lam fallback_doc_id: on dinh, duy nhat cho moi
-    # file (scripts/fetch_zalo_legal_corpus.py dam bao qua slugify_id rieng
-    # cua no) - dong logic hong doc_id="" khi van ban thieu dong "# {title}"
-    # (xem structure_parser.py fix, task-2e-brief.md).
-    fallback_doc_id = file_path.stem
-    parsed = parse_document(text, fallback_doc_id=fallback_doc_id)
+    doc_prefix, filename_so_dieu = parse_filename_doc_prefix_and_so_dieu(file_path)
+    # slugify_doc_name (T006/T007, dung chung) thay vi doc_prefix tho - dam
+    # bao doc_id dong dang dinh dang voi phan con lai cua he thong (vd
+    # reference_extractor.py resolve trich dan qua cung ham nay).
+    doc_id = slugify_doc_name(doc_prefix)
+    parsed = parse_article_chunk(text, doc_id=doc_id, fallback_so_dieu=filename_so_dieu)
 
     batch_id = f"batch-{batch_index:04d}"
     upsert_document(client, parsed, batch_id=batch_id)

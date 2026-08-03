@@ -2,10 +2,21 @@
 T009b + app/ingest.py T009d) hoat dong dung khi ket hop voi nhau.
 
 Khong the `kill -9` that trong pytest - mo phong crash bang cach INJECT mot
-fault vao mock Neo4jClient.run(): raise exception khi thay tham so `title`
+fault vao mock Neo4jClient.run(): raise exception khi thay tham so `doc_id`
 khop voi mot van ban CU THE (van ban thu hai cua batch index 2, tuc la mot
 batch SAU batch dau tien, dung theo yeu cau brief - "not the first batch",
 de chung minh cac batch DA hoan tat truoc do khong bi lam lai).
+
+Fixture corpus theo dung hinh dang that (task-2f-brief.md - moi file la
+DUY NHAT mot Dieu, ten file "{doc_prefix}_{so_dieu}.md"): moi file o day
+la mot van ban RIENG (doc_prefix rieng, doc00..doc07) chi co 1 Dieu, de giu
+nguyen kich ban goc "8 van ban rieng biet trai qua 3 batch". Match fault
+qua `doc_id` (KHONG con dung `title` - `parse_article_chunk()` luon de
+`title` rong, khac voi `parse_document()` cu ma test nay ban dau dung -
+xem task-2f-brief.md) vi `doc_id` la thu duy nhat phan biet moi van ban va
+CHI query MERGE Document moi truyen ca `doc_id` LAN `title` cung luc (xem
+upsert.py._DOCUMENT_QUERY) - dung dieu kien do de chac chan chi khop dung
+Document-upsert query, khong nham voi query khac.
 
 Khong dung Neo4j that (cung quy uoc "honest mocking" nhu test_upsert.py):
 mock o muc Neo4jClient (client.run) - upsert.py/ingest.py chi goi qua
@@ -16,6 +27,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from app.extraction.slugify import slugify_doc_name
 from app.ingest import BatchSizeMismatchError, run_ingest
 from app.ingest_checkpoint.state_store import IngestCheckpointStore
 
@@ -23,32 +35,42 @@ _NUM_FILES = 8
 _BATCH_SIZE = 3  # -> 3 batch: [0,1,2]=idx0, [3,4,5]=idx1, [6,7]=idx2
 
 
-def _titles() -> list[str]:
-    return [f"Văn Bản Số {i}" for i in range(_NUM_FILES)]
+def _doc_prefixes() -> list[str]:
+    return [f"doc{i:02d}" for i in range(_NUM_FILES)]
+
+
+def _doc_ids() -> list[str]:
+    return [slugify_doc_name(prefix) for prefix in _doc_prefixes()]
 
 
 def _filenames() -> list[str]:
-    return [f"doc-{i:02d}.md" for i in range(_NUM_FILES)]
+    # "{doc_prefix}_{so_dieu}.md" - moi van ban chi co 1 Dieu (so_dieu=1).
+    return [f"{prefix}_1.md" for prefix in _doc_prefixes()]
 
 
 def _write_corpus(data_dir: Path) -> None:
     data_dir.mkdir(parents=True, exist_ok=True)
-    for filename, title in zip(_filenames(), _titles()):
-        content = f"# {title}\n\nĐiều 1. Quy định chung\n\nNội dung điều một.\n"
+    for i, filename in enumerate(_filenames()):
+        content = f"# Điều 1. Quy định số {i}\n\nNội dung điều một của văn bản số {i}.\n"
         (data_dir / filename).write_text(content, encoding="utf-8")
 
 
-def _make_faulty_client(fault_title: str) -> tuple[MagicMock, dict]:
-    """Mock Neo4jClient voi client.run() raise khi kwargs['title'] ==
-    fault_title (chi Document-upsert query truyen `title` - xem
+def _make_faulty_client(fault_doc_id: str) -> tuple[MagicMock, dict]:
+    """Mock Neo4jClient voi client.run() raise khi kwargs['doc_id'] ==
+    fault_doc_id VA loi goi do dung la Document-upsert query (nhan dien qua
+    su co mat dong thoi cua `title` trong cung loi goi - xem
     upsert.py._DOCUMENT_QUERY) - VA CHI KHI fault dang "active" (toggle qua
     dict tra ve, de test tat fault o lan chay thu hai ma khong can tao lai
     mock/mat lich su side_effect)."""
     state = {"fault_active": True}
 
     def run_side_effect(query, **kwargs):
-        if state["fault_active"] and kwargs.get("title") == fault_title:
-            raise RuntimeError(f"simulated crash on document {fault_title!r}")
+        if (
+            state["fault_active"]
+            and kwargs.get("doc_id") == fault_doc_id
+            and "title" in kwargs
+        ):
+            raise RuntimeError(f"simulated crash on document {fault_doc_id!r}")
         return []
 
     mock_client = MagicMock()
@@ -56,11 +78,11 @@ def _make_faulty_client(fault_title: str) -> tuple[MagicMock, dict]:
     return mock_client, state
 
 
-def _titles_seen_in_calls(mock_client: MagicMock) -> set[str]:
+def _doc_ids_seen_in_calls(mock_client: MagicMock) -> set[str]:
     return {
-        call.kwargs["title"]
+        call.kwargs["doc_id"]
         for call in mock_client.run.call_args_list
-        if "title" in call.kwargs
+        if "doc_id" in call.kwargs and "title" in call.kwargs
     }
 
 
@@ -68,15 +90,14 @@ def test_resume_after_crash_skips_completed_batches(tmp_path):
     data_dir = tmp_path / "corpus"
     _write_corpus(data_dir)
 
-    titles = _titles()
-    filenames = _filenames()
+    doc_ids = _doc_ids()
     # batch index 2 = files[6:8] -> 2nd document of batch 2 = files[7].
-    fault_title = titles[7]
+    fault_doc_id = doc_ids[7]
 
     state_file = tmp_path / "state" / "ingest_checkpoint.json"
     state_store = IngestCheckpointStore(state_file)
 
-    mock_client, fault_state = _make_faulty_client(fault_title)
+    mock_client, fault_state = _make_faulty_client(fault_doc_id)
 
     # --- Run 1: crash partway through batch index 2 ------------------------
     with pytest.raises(RuntimeError, match="simulated crash"):
@@ -90,16 +111,16 @@ def test_resume_after_crash_skips_completed_batches(tmp_path):
     # Batches 0 and 1 fully completed and marked done; batch 2 interrupted.
     assert state_store.get_last_completed_batch() == 1
 
-    # Sanity: batch 0/1 documents (titles[0:6]) were in fact processed
-    # before the crash, and batch 2's first document (titles[6]) was
-    # processed successfully before the crash hit on titles[7] (2nd doc of
-    # batch 2). The call for titles[7] itself IS recorded by the mock even
+    # Sanity: batch 0/1 documents (doc_ids[0:6]) were in fact processed
+    # before the crash, and batch 2's first document (doc_ids[6]) was
+    # processed successfully before the crash hit on doc_ids[7] (2nd doc of
+    # batch 2). The call for doc_ids[7] itself IS recorded by the mock even
     # though it raised (Mock records call args before invoking
     # side_effect), so it isn't asserted absent here.
-    seen_run1 = _titles_seen_in_calls(mock_client)
-    for title in titles[0:6]:
-        assert title in seen_run1
-    assert titles[6] in seen_run1
+    seen_run1 = _doc_ids_seen_in_calls(mock_client)
+    for doc_id in doc_ids[0:6]:
+        assert doc_id in seen_run1
+    assert doc_ids[6] in seen_run1
 
     # --- Remove the fault, reset call history, run again --------------------
     fault_state["fault_active"] = False
@@ -114,12 +135,12 @@ def test_resume_after_crash_skips_completed_batches(tmp_path):
 
     # (a) Resume starts at batch 2, NOT 0/1: none of batch 0/1's documents
     # were reprocessed in this second run.
-    seen_run2 = _titles_seen_in_calls(mock_client)
-    for title in titles[0:6]:
-        assert title not in seen_run2
-    # Batch 2's documents (titles[6], titles[7]) WERE processed this run.
-    assert titles[6] in seen_run2
-    assert titles[7] in seen_run2
+    seen_run2 = _doc_ids_seen_in_calls(mock_client)
+    for doc_id in doc_ids[0:6]:
+        assert doc_id not in seen_run2
+    # Batch 2's documents (doc_ids[6], doc_ids[7]) WERE processed this run.
+    assert doc_ids[6] in seen_run2
+    assert doc_ids[7] in seen_run2
 
     # (b) run completed successfully (no exception raised above is already
     # proof), (c) checkpoint now reflects the final batch index (0-based,
@@ -130,16 +151,23 @@ def test_resume_after_crash_skips_completed_batches(tmp_path):
 def test_fault_actually_raises_on_the_targeted_document_call():
     # Focused unit check on the fault-injection helper itself, independent
     # of run_ingest - guards against the injection silently matching the
-    # wrong call (e.g. a Chapter/Article/Clause query that also happens to
-    # carry a `title`-shaped kwarg by coincidence) and the integration test
-    # above passing for the wrong reason.
-    mock_client, _ = _make_faulty_client("Văn Bản Số 7")
+    # wrong call (e.g. a Clause/Article query that also happens to carry a
+    # `doc_id`-shaped kwarg by coincidence) and the integration test above
+    # passing for the wrong reason.
+    mock_client, _ = _make_faulty_client("doc07")
 
     with pytest.raises(RuntimeError, match="simulated crash"):
-        mock_client.run("MERGE (d:Document ...)", doc_id="x", title="Văn Bản Số 7")
+        mock_client.run("MERGE (d:Document ...)", doc_id="doc07", title="")
 
-    # A different title does not trigger the fault.
-    result = mock_client.run("MERGE (d:Document ...)", doc_id="y", title="Khác")
+    # A different doc_id does not trigger the fault.
+    result = mock_client.run("MERGE (d:Document ...)", doc_id="doc06", title="")
+    assert result == []
+
+    # A call carrying `doc_id` but WITHOUT `title` (e.g. Article-under-
+    # document query, which uses `parent_id` not `doc_id`... this checks
+    # the "title must also be present" guard directly) does not trigger the
+    # fault even if doc_id happens to match.
+    result = mock_client.run("MATCH (parent:Document ...)", doc_id="doc07")
     assert result == []
 
 
@@ -217,13 +245,13 @@ def test_resume_with_same_batch_size_still_works(tmp_path):
     data_dir = tmp_path / "corpus"
     _write_corpus(data_dir)
 
-    titles = _titles()
-    fault_title = titles[7]
+    doc_ids = _doc_ids()
+    fault_doc_id = doc_ids[7]
 
     state_file = tmp_path / "state" / "ingest_checkpoint.json"
     state_store = IngestCheckpointStore(state_file)
 
-    mock_client, fault_state = _make_faulty_client(fault_title)
+    mock_client, fault_state = _make_faulty_client(fault_doc_id)
 
     with pytest.raises(RuntimeError, match="simulated crash"):
         run_ingest(
