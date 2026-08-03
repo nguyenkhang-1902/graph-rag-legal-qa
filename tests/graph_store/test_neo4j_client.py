@@ -20,15 +20,18 @@ import pytest
 from app import config
 from app.graph_store.neo4j_client import Neo4jClient
 
+# Transcribed verbatim from specs/001-graph-rag-core/data-model.md
+# ("Index can tao" section) - source of truth, not copied from the
+# implementation, so this test can actually catch a deviation from spec.
 EXPECTED_STATEMENTS = (
     "CREATE CONSTRAINT article_id_unique IF NOT EXISTS "
-    "FOR (a:Article) REQUIRE a.article_id IS UNIQUE",
+    "FOR (a:Article) REQUIRE a.article_id IS UNIQUE;",
     "CREATE CONSTRAINT document_id_unique IF NOT EXISTS "
-    "FOR (d:Document) REQUIRE d.doc_id IS UNIQUE",
+    "FOR (d:Document) REQUIRE d.doc_id IS UNIQUE;",
     "CREATE INDEX article_chroma_id IF NOT EXISTS "
-    "FOR (a:Article) ON (a.chroma_id)",
+    "FOR (a:Article) ON (a.chroma_id);",
     "CREATE INDEX document_batch_id IF NOT EXISTS "
-    "FOR (d:Document) ON (d.batch_id)",
+    "FOR (d:Document) ON (d.batch_id);",
 )
 
 

@@ -20,13 +20,13 @@ from app import config
 # de idempotent, an toan goi lai moi lan startup).
 _CONSTRAINTS_AND_INDEXES: tuple[str, ...] = (
     "CREATE CONSTRAINT article_id_unique IF NOT EXISTS "
-    "FOR (a:Article) REQUIRE a.article_id IS UNIQUE",
+    "FOR (a:Article) REQUIRE a.article_id IS UNIQUE;",
     "CREATE CONSTRAINT document_id_unique IF NOT EXISTS "
-    "FOR (d:Document) REQUIRE d.doc_id IS UNIQUE",
+    "FOR (d:Document) REQUIRE d.doc_id IS UNIQUE;",
     "CREATE INDEX article_chroma_id IF NOT EXISTS "
-    "FOR (a:Article) ON (a.chroma_id)",
+    "FOR (a:Article) ON (a.chroma_id);",
     "CREATE INDEX document_batch_id IF NOT EXISTS "
-    "FOR (d:Document) ON (d.batch_id)",
+    "FOR (d:Document) ON (d.batch_id);",
 )
 
 
