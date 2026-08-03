@@ -224,12 +224,23 @@ def _extract_clauses(content_lines: list[str], article_id: str) -> list[Clause]:
     return clauses
 
 
-def parse_document(text: str) -> ParsedDocument:
+def parse_document(text: str, fallback_doc_id: str = "") -> ParsedDocument:
     """Parse raw text mot van ban (format `# {title}\\n\\n{body}\\n` - xem
     module docstring) thanh ParsedDocument. Khong bao gio raise tren input
-    rong/bat thuong - tra ve cau truc rong/mot phan la sensible fallback."""
+    rong/bat thuong - tra ve cau truc rong/mot phan la sensible fallback.
+
+    `fallback_doc_id`: dung lam `doc_id` khi van ban KHONG co dong tieu de
+    "# {title}" (title rong) - thay vi de doc_id sup thanh
+    `slugify_doc_name("") == ""`. Neu nhieu van ban malformed nhu vay deu
+    thieu title, doc_id rong se khien chung MERGE chung mot Document node
+    (hai van ban khong lien quan bi gop lam mot, khong loi/canh bao - xem
+    task-2e-brief.md). Caller thuc te (app/ingest.py, T009d) truyen ten
+    file (khong duoi) lam fallback - da dam bao duy nhat qua
+    scripts/fetch_zalo_legal_corpus.py's slugify_id. Mac dinh "" giu
+    nguyen hanh vi cu cho cac caller khong truyen tham so nay (vd test
+    hien co)."""
     title, body = _split_title_and_body(text)
-    doc_id = slugify_doc_name(title) if title else ""
+    doc_id = slugify_doc_name(title) if title else fallback_doc_id
 
     lines = body.split("\n")
     n = len(lines)

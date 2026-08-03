@@ -353,6 +353,45 @@ def test_two_chapters_back_to_back_no_title_line_between_them():
     assert chuong2.articles[0].so_dieu == 1
 
 
+def test_missing_h1_title_uses_fallback_doc_id_for_all_ids():
+    # task-2e-brief.md prerequisite fix: van ban khong co dong "# {title}"
+    # (title rong) phai dung fallback_doc_id (khong phai slugify_doc_name("")
+    # == "") lam doc_id, va MOI id phai sinh (chapter_id/article_id/
+    # clause_id) phai dua tren fallback_doc_id nay - neu khong, hai van ban
+    # malformed khac nhau se cung sup ve doc_id "" va bi MERGE chung lam mot
+    # Document trong Neo4j (xem app/ingest.py, T009d).
+    text = (
+        "Không có dòng tiêu đề markdown ở đây.\n\n"
+        "Chương I\nQUY ĐỊNH CHUNG\n\n"
+        "Điều 1. Một điều lạc lõng\n\n"
+        "1. Nội dung khoản một.\n"
+    )
+
+    parsed = parse_document(text, fallback_doc_id="file-abc-123")
+
+    assert parsed.title == ""
+    assert parsed.doc_id == "file-abc-123"
+    assert len(parsed.chapters) == 1
+    chuong = parsed.chapters[0]
+    assert chuong.chapter_id == "file-abc-123_chuong-1"
+    assert len(chuong.articles) == 1
+    dieu = chuong.articles[0]
+    assert dieu.article_id == "file-abc-123_dieu-1"
+    assert len(dieu.clauses) == 1
+    assert dieu.clauses[0].clause_id == "file-abc-123_dieu-1_khoan-1"
+
+
+def test_missing_h1_title_without_fallback_keeps_old_behavior():
+    # Caller khong truyen fallback_doc_id (mac dinh "") -> hanh vi cu khong
+    # doi: doc_id rong.
+    text = "Không có tiêu đề.\nĐiều 1. Một điều.\nNội dung.\n"
+
+    parsed = parse_document(text)
+
+    assert parsed.doc_id == ""
+    assert parsed.articles[0].article_id == "_dieu-1"
+
+
 def test_returns_dataclass_instances():
     parsed = parse_document(_DOC_FOR_ID_FORMAT)
 
