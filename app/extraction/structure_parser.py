@@ -272,12 +272,27 @@ def parse_document(text: str) -> ParsedDocument:
             j = i + 1
             while j < n and not lines[j].strip():
                 j += 1
-            tieu_de = lines[j].strip() if j < n else ""
+            candidate = lines[j].strip() if j < n else ""
+            # Chi coi dong ke tiep la tieu_de rieng cua Chuong khi no KHONG
+            # tu no la mot dong tieu de cau truc khac (Chuong khac / Dieu).
+            # Neu khong kiem tra, hai Chuong lien tiep khong co dong tieu de
+            # rieng (hoac mot Chuong di thang vao Dieu, khong co tieu de) se
+            # bi nuot mat dong Chuong/Dieu tiep theo lam tieu_de, lam bien
+            # mat ca Dieu/Chuong do khoi ket qua parse (xem task-2c review
+            # finding 1). tieu_de o day de rong ("khong co") va viec parse
+            # tiep tuc binh thuong tu chinh dong candidate (khong bi bo qua).
+            if candidate and (
+                _CHAPTER_RE.match(candidate) or _ARTICLE_RE.match(candidate)
+            ):
+                tieu_de = ""
+                i = j
+            else:
+                tieu_de = candidate
+                i = (j + 1) if j < n else n
             current_chapter = Chapter(
                 chapter_id=chapter_id, so_chuong=so_chuong, tieu_de=tieu_de
             )
             chapters.append(current_chapter)
-            i = (j + 1) if j < n else n
             continue
 
         article_match = _ARTICLE_RE.match(stripped) if stripped else None

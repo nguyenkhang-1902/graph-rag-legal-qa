@@ -292,6 +292,51 @@ def test_chapter_with_no_following_title_line_does_not_crash():
     assert parsed.chapters[0].tieu_de == ""
 
 
+def test_chapter_immediately_followed_by_article_heading_no_title_line():
+    # Review finding (task-2c #1): truoc day dong "Dieu 1. ..." bi nuot
+    # nham lam tieu_de cua Chuong I (vi no la dong khong-rong dau tien sau
+    # "Chuong I"), khien Dieu 1 va noi dung cua no bien mat hoan toan khoi
+    # ket qua parse, khong co loi/canh bao nao ca. Chuong I trong truong
+    # hop nay KHONG co dong tieu de rieng - di thang vao Dieu 1.
+    text = (
+        "# VBT\n\nChương I\nĐiều 1. Tieu de dieu mot\n\nNoi dung.\n"
+    )
+
+    parsed = parse_document(text)
+
+    assert len(parsed.chapters) == 1
+    chuong = parsed.chapters[0]
+    assert chuong.so_chuong == 1
+    assert chuong.tieu_de == ""  # khong co dong tieu de rieng -> rong
+
+    assert len(chuong.articles) == 1
+    dieu1 = chuong.articles[0]
+    assert dieu1.so_dieu == 1
+    assert "Tieu de dieu mot" in dieu1.noi_dung_preview
+    assert "Noi dung." in dieu1.noi_dung_preview
+
+
+def test_two_chapters_back_to_back_no_title_line_between_them():
+    # Review finding (task-2c #1): hai Chuong lien tiep, khong co dong
+    # tieu de nao giua chung - truoc day dong "Chuong II" bi nuot lam
+    # tieu_de cua Chuong I, khien Chuong II hoan toan bien mat va Dieu cua
+    # no bi gan nham vao Chuong I.
+    text = "# VBT\n\nChương I\nChương II\nĐiều 1. Một điều\n\nNội dung.\n"
+
+    parsed = parse_document(text)
+
+    assert len(parsed.chapters) == 2
+    chuong1, chuong2 = parsed.chapters
+    assert chuong1.so_chuong == 1
+    assert chuong1.tieu_de == ""
+    assert chuong1.articles == []
+
+    assert chuong2.so_chuong == 2
+    assert chuong2.tieu_de == ""
+    assert len(chuong2.articles) == 1
+    assert chuong2.articles[0].so_dieu == 1
+
+
 def test_returns_dataclass_instances():
     parsed = parse_document(_DOC_FOR_ID_FORMAT)
 
