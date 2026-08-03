@@ -171,6 +171,24 @@ def _split_title_and_body(text: str) -> tuple[str, str]:
     return "", text
 
 
+def _build_full_text_and_preview(
+    heading_title: str, content_lines: list[str]
+) -> tuple[str, str]:
+    """Ghep heading + noi dung than bai thanh full_text, va cat preview
+    ~200 ky tu (_PREVIEW_MAX_CHARS) - dung chung boi parse_document (qua
+    close_pending_article) va parse_article_chunk, tranh 2 ban sao lech
+    nhau (bai hoc tu bug leading-zero article_id o task-2c review)."""
+    full_text_parts = []
+    if heading_title:
+        full_text_parts.append(heading_title)
+    body_text = "\n".join(content_lines).strip()
+    if body_text:
+        full_text_parts.append(body_text)
+    full_text = "\n".join(full_text_parts).strip()
+    preview = full_text[:_PREVIEW_MAX_CHARS]
+    return full_text, preview
+
+
 def _extract_clauses(content_lines: list[str], article_id: str) -> list[Clause]:
     """Quet cac dong SAU dong tieu de Dieu (khong bao gom tieu de) de tim
     Khoan. Chi vao "che do khoan" khi dong khong-rong DAU TIEN trong noi
@@ -261,14 +279,7 @@ def parse_document(text: str, fallback_doc_id: str = "") -> ParsedDocument:
             return
         heading_title = pending["heading_title"]
         content_lines: list[str] = pending["content_lines"]
-        full_text_parts = []
-        if heading_title:
-            full_text_parts.append(heading_title)
-        body_text = "\n".join(content_lines).strip()
-        if body_text:
-            full_text_parts.append(body_text)
-        full_text = "\n".join(full_text_parts).strip()
-        preview = full_text[:_PREVIEW_MAX_CHARS]
+        full_text, preview = _build_full_text_and_preview(heading_title, content_lines)
         clauses = _extract_clauses(content_lines, pending["article_id"])
         article = Article(
             article_id=pending["article_id"],
@@ -417,14 +428,7 @@ def parse_article_chunk(
 
     article_id = f"{doc_id}_dieu-{so_dieu}"
 
-    full_text_parts = []
-    if heading_title:
-        full_text_parts.append(heading_title)
-    body_text = "\n".join(body_lines).strip()
-    if body_text:
-        full_text_parts.append(body_text)
-    full_text = "\n".join(full_text_parts).strip()
-    preview = full_text[:_PREVIEW_MAX_CHARS]
+    full_text, preview = _build_full_text_and_preview(heading_title, body_lines)
 
     clauses = _extract_clauses(body_lines, article_id)
 
