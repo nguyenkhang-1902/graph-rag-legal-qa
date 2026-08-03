@@ -23,3 +23,12 @@
 - [ ] **Sẵn sàng bắt đầu**: `tasks.md` Phase 1 (T001) — khởi tạo code thật (hiện tại mới có `.specify/` + `specs/` + docs, chưa có `app/` code)
 
 **Việc tiếp theo**: đọc `specs/001-graph-rag-core/tasks.md` Phase 1, bắt đầu từ T001. Nếu dùng subagent triển khai, đưa cả `constitution.md` (v1.1) + `plan.md` + `tasks.md` làm context. Lưu ý D1/D2 khi tới Foundational/Phase 4.
+
+## 1. 🏗️ ĐỢT 3 — Triển khai Phase 1 + Phase 2 Foundational (2026-08-03)
+
+- [x] Git repo khởi tạo, branch `001-graph-rag-core`, quy trình subagent-driven-development (implementer + reviewer riêng mỗi task, fix inline khi review tìm lỗi).
+- [x] Phase 1 Setup hoàn tất: T001 (scaffold), T002 (docker-compose Neo4j), T003 (fetch script tái dùng, xác nhận mặc định đã là full 67k), T004 (`app/config.py`).
+- [x] Phase 2 Foundational hoàn tất: T005 (`neo4j_client.py`), T006-T007 (`reference_extractor.py` + `slugify.py`, TDD đúng nghĩa — test trước, xác nhận red, rồi implement), T008 (`structure_parser.py`), T009 (`upsert.py`, idempotent + external-reference placeholder), T009b-d (`state_store.py` savepoint atomic, `app/ingest.py` batch CLI, test resume-after-crash mô phỏng bằng mock).
+- [x] 83/83 test pass. Review tìm và fix inline nhiều lỗi thật đáng chú ý: thiếu `;` verbatim Cypher, doc-type Bộ luật/Thông tư/Nghị quyết bị gán nhầm trích dẫn nội bộ, Chapter nuốt mất Article khi không có dòng tiêu đề riêng, lệch `article_id` giữa 2 module khi số điều có số 0 ở đầu, `doc_id` trùng khi thiếu tiêu đề, và quan trọng nhất: **checkpoint không ghi `batch_size` → đổi batch size giữa 2 lần chạy sẽ âm thầm bỏ sót hàng nghìn văn bản khi resume** (đã fix: phát hiện + từ chối chạy).
+- [ ] **Điểm dừng theo hiến pháp**: `structure_parser.py` được xây dựng dựa trên quy ước cấu trúc văn bản luật VN chuẩn (Chương/Điều/Khoản), **chưa verify với dữ liệu thật** vì chưa fetch corpus (fetch tốn tải toàn bộ ~61k văn bản từ HuggingFace ngay cả khi chỉ muốn xem mẫu — cần Khang xác nhận trước khi chạy).
+- [ ] **Việc tiếp theo**: Khang xác nhận chạy fetch mẫu (vd `--subset-size 100`) + `docker compose up` Neo4j thật + chạy `python -m app.ingest` trên mẫu thật, `kill -9` giữa batch, xác nhận resume đúng (SC-005) — đây là checkpoint bắt buộc trước khi mở rộng ra ingest toàn bộ 67k (theo `tasks.md` Phase 2 Checkpoint).
