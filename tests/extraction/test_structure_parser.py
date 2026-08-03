@@ -227,7 +227,15 @@ def test_id_formats_match_exact_literal_strings():
 # --- Case 6: noi_dung_preview bi truncate, full text khong duoc luu ------
 
 
-def test_noi_dung_preview_is_truncated_and_full_text_not_retained():
+def test_noi_dung_preview_is_truncated_full_text_present_but_untruncated():
+    # Tu task-2d amendment: Article co them truong `full_text` (day du,
+    # KHONG truncate) - de lam input cho reference_extractor.py (can toan
+    # bo noi dung Dieu de tim trich dan, 200 ky tu preview se bo sot gan
+    # het). Dieu thuc su quan trong (duoc test o day) la `noi_dung_preview`
+    # - thu DUY NHAT duoc ghi vao Neo4j (xem upsert.py, T009) - van bi
+    # truncate dung nhu truoc. Viec `full_text` KHONG duoc ghi vao Neo4j la
+    # trach nhiem cua upsert.py, duoc test o tests/graph_store/test_upsert.py
+    # (khong the test tu day, module nay khong biet gi ve Neo4j).
     long_sentence = "Đây là một câu rất dài được lặp lại nhiều lần. " * 10
     text = f"# Văn Bản Dài\n\nĐiều 1. Điều khoản dài\n\n{long_sentence}\n"
 
@@ -239,12 +247,20 @@ def test_noi_dung_preview_is_truncated_and_full_text_not_retained():
     assert len(dieu.noi_dung_preview) <= 200
     assert dieu.noi_dung_preview == full_text[:200]
 
-    # Article dataclass khong duoc co truong nao khac luu full text.
+    # full_text duoc giu day du, khong bi truncate, va khop chinh xac noi
+    # dung day du cua Dieu (khac voi noi_dung_preview da bi cat).
+    assert dieu.full_text == full_text
+    assert len(dieu.full_text) > 200
+
+    # Article dataclass co dung 5 truong (them full_text so voi truoc).
     field_names = {f.name for f in dataclasses.fields(Article)}
-    assert field_names == {"article_id", "so_dieu", "noi_dung_preview", "clauses"}
-    for value in dataclasses.asdict(dieu).values():
-        if isinstance(value, str):
-            assert len(value) <= 200
+    assert field_names == {
+        "article_id",
+        "so_dieu",
+        "noi_dung_preview",
+        "full_text",
+        "clauses",
+    }
 
 
 # --- Case 7: input rong/malformed khong crash -----------------------------

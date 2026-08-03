@@ -99,13 +99,22 @@ class Clause:
 @dataclass
 class Article:
     """Node Dieu (data-model.md). `noi_dung_preview` da bi truncate ~200 ky
-    tu - full text KHONG duoc luu o day (thuoc trach nhiem component khac,
-    xem module docstring / brief). `chroma_id` khong thuoc pham vi task nay
-    (out of scope - se duoc gan sau boi component embed/upsert)."""
+    tu - day la thu duy nhat duoc GHI VAO NEO4J (xem upsert.py, T009).
+    `chroma_id` khong thuoc pham vi task nay (out of scope - se duoc gan sau
+    boi component embed/upsert).
+
+    `full_text` la ca heading + body + clause text, KHONG truncate - them
+    vao o T009 (xem task-2d-brief.md) CHI de lam input cho cac buoc
+    extraction can toan bo noi dung Dieu (reference_extractor.py can full
+    text de tim moi trich dan "Dieu X", 200 ky tu preview se bo sot gan het
+    trich dan trong mot Dieu that). Truong nay KHONG bao gio duoc ghi vao
+    Neo4j - `upsert.py` chi doc `noi_dung_preview`/`chroma_id` cho node
+    Article (data-model.md: "KHONG luu full text trong Neo4j")."""
 
     article_id: str
     so_dieu: int
     noi_dung_preview: str
+    full_text: str
     clauses: list[Clause] = field(default_factory=list)
 
 
@@ -251,6 +260,7 @@ def parse_document(text: str) -> ParsedDocument:
             article_id=pending["article_id"],
             so_dieu=pending["so_dieu"],
             noi_dung_preview=preview,
+            full_text=full_text,
             clauses=clauses,
         )
         owner: Chapter | None = pending["owner"]
