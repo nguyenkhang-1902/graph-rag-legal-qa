@@ -1,0 +1,28 @@
+services:
+  neo4j:
+    image: neo4j:5-community
+    container_name: graph-rag-legal-qa-neo4j
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      # neo4j:5-community REQUIRES auth to be explicitly enabled (Điều 10
+      # constitution — không bao giờ NEO4J_AUTH=none, kể cả local demo).
+      # NEO4J_USER is fixed to "neo4j" (the only user Community Edition
+      # supports); password comes from .env, never hardcoded here.
+      NEO4J_AUTH: neo4j/${NEO4J_PASSWORD}
+    ports:
+      - "7474:7474" # Neo4j Browser (HTTP)
+      - "7687:7687" # Bolt protocol
+    volumes:
+      - neo4j_data:/data
+      - neo4j_logs:/logs
+    extra_hosts:
+      # sổ bẫy 12d (research.md): container cần gọi Ollama chạy trên Windows
+      # host qua host.docker.internal — không có entry này thì DNS lookup
+      # thất bại trên một số môi trường Docker.
+      - "host.docker.internal:host-gateway"
+
+volumes:
+  neo4j_data:
+  neo4j_logs:
