@@ -92,6 +92,36 @@ def test_raw_text_captures_the_citation_substring():
     assert refs[0].raw_text == "khoản 2 Điều 5 Nghị định 123/2020/NĐ-CP"
 
 
+def test_cross_document_citation_bo_luat():
+    # Review finding (task-2b): "Bo luat" khong duoc nhan dien truoc day,
+    # khien cau nay bi doan nham thanh tu-trich-dan (current_doc_slug) -
+    # target_article_id PHAI tro toi "bo-luat-dan-su-2015", KHONG PHAI
+    # "luat-xyz_dieu-8".
+    text = "...được quy định tại Điều 8 Bộ luật Dân sự 2015..."
+    refs = extract_references(text, current_doc_slug="luat-xyz")
+
+    assert len(refs) == 1
+    assert refs[0].target_article_id == "bo-luat-dan-su-2015_dieu-8"
+
+
+def test_cross_document_citation_thong_tu():
+    # Review finding: "Thong tu" khong duoc nhan dien truoc day.
+    text = "...được quy định tại Điều 8 Thông tư 01/2020/TT-BTC..."
+    refs = extract_references(text, current_doc_slug="luat-xyz")
+
+    assert len(refs) == 1
+    assert refs[0].target_article_id == "thong-tu-01-2020-tt-btc_dieu-8"
+
+
+def test_cross_document_citation_nghi_quyet():
+    # Review finding: "Nghi quyet" khong duoc nhan dien truoc day.
+    text = "...được quy định tại Điều 8 Nghị quyết 42/2017/QH14..."
+    refs = extract_references(text, current_doc_slug="luat-xyz")
+
+    assert len(refs) == 1
+    assert refs[0].target_article_id == "nghi-quyet-42-2017-qh14_dieu-8"
+
+
 def test_returns_extracted_reference_dataclass_instances():
     text = "Điều 1 quy định..."
     refs = extract_references(text, current_doc_slug="luat-xyz")

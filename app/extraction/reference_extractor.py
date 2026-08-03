@@ -22,17 +22,28 @@ from app.extraction.slugify import slugify_doc_name
 
 # Quyet dinh ranh gioi "ten van ban ket thuc o dau" (diem mo ho duoc phep
 # tu quyet dinh theo brief - ghi lai gia dinh theo constitution "ghi gia
-# dinh"): chi ho tro 2 dang cu the xuat hien trong tasks.md T006, khong co
-# gang bao quat moi cach hanh van trich dan phap ly (P1 rule-based, khong
-# phai NLP toan dien):
-#   - "Luat <ten...> <nam 4 chu so>", vd "Luat Doanh nghiep 2020" - ten
-#     van ban ket thuc ngay sau nam ban hanh 4 chu so.
-#   - "Nghi dinh <so>/<nam 4 chu so>/<ma hieu>", vd
-#     "Nghi dinh 123/2020/ND-CP" - ket thuc ngay sau ma hieu (chu/so/gach
-#     ngang, dung truoc khoang trang hoac dau cau tiep theo).
+# dinh"): chi ho tro 2 DANG cu phap, moi dang ap dung cho mot tap hop dong,
+# khep kin cac loai van ban quy pham phap luat Viet Nam (dung theo Dieu 4
+# Luat Ban hanh van ban QPPL - Luat, Bo luat, Phap lenh, Nghi dinh, Nghi
+# quyet, Quyet dinh, Thong tu, Chi thi la cac loai pho bien nhat trong
+# corpus phap ly). Day la mot danh sach dong, khep kin (khong phai NLP
+# toan dien - P1 rule-based) nen mo rong duoc an toan; truoc ban sua nay
+# chi 2 tu khoa (Luat, Nghi dinh) duoc nhan dien, khien mot tu khoa khac
+# (vd "Bo luat", "Thong tu", "Nghi quyet") bi coi la "khong co ten van
+# ban" va bi doan nham thanh tu-trich-dan (target_article_id tro sai ve
+# current_doc_slug thay vi van ban duoc trich dan that su - xem task-2b
+# review finding: sai con te hon la khong trich xuat):
+#   - "<Luat|Bo luat|Phap lenh> <ten...> <nam 4 chu so>", vd "Luat Doanh
+#     nghiep 2020", "Bo luat Dan su 2015" - ten van ban ket thuc ngay sau
+#     nam ban hanh 4 chu so.
+#   - "<Nghi dinh|Nghi quyet|Quyet dinh|Thong tu|Chi thi> <so>/<nam 4 chu
+#     so>/<ma hieu>", vd "Nghi dinh 123/2020/ND-CP", "Thong tu
+#     01/2020/TT-BTC", "Nghi quyet 42/2017/QH14" - ket thuc ngay sau ma
+#     hieu (chu/so/gach ngang, dung truoc khoang trang hoac dau cau tiep
+#     theo).
 _DOC_NAME_PATTERN = (
-    r"Luật\s+[^\d,.;]+?\d{4}"
-    r"|Nghị định\s+\d+/\d{4}/[\w\-]+"
+    r"(?:Bộ luật|Luật|Pháp lệnh)\s+[^\d,.;]+?\d{4}"
+    r"|(?:Nghị định|Nghị quyết|Quyết định|Thông tư|Chỉ thị)\s+\d+/\d{4}/[\w\-]+"
 )
 
 # "khoan {so}" phia truoc la tuy chon, chi dung de nhan dien cau trich dan
