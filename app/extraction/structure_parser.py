@@ -43,10 +43,13 @@ cua task nay.
 """
 from __future__ import annotations
 
+import logging
 import re
 from dataclasses import dataclass, field
 
 from app.extraction.slugify import slugify_doc_name
+
+logger = logging.getLogger(__name__)
 
 # Dong tieu de Chuong: CHI "Chuong" + so La Ma/A Rap, KHONG co gi khac tren
 # cung dong (tieu de Chuong nam o dong RIENG tiep theo - xem gia dinh o
@@ -340,3 +343,97 @@ def parse_document(text: str, fallback_doc_id: str = "") -> ParsedDocument:
     return ParsedDocument(
         doc_id=doc_id, title=title, chapters=chapters, articles=top_level_articles
     )
+
+
+def parse_article_chunk(
+    text: str, doc_id: str, fallback_so_dieu: int | None = None
+) -> ParsedDocument:
+    """Parse mot file "moi file = mot Dieu" (corpus that - xem task-2f-brief.md,
+    KHAC voi `parse_document()` o tren, van duoc GIU NGUYEN cho input dang
+    "mot file = mot van ban nhieu Dieu"). Dong dau tien khong-rong cua
+    `text` LA chinh dong tieu de Dieu ("Dieu N. <tieu de>", co the co hoac
+    khong co tien to "# " markdown) - KHONG phai tieu de van ban. Toan bo
+    phan con lai la noi dung cua DUY NHAT Dieu do; khong bao gio co "Dieu
+    N." long ben trong body, va "Chuong" (neu xuat hien) chi la trich dan
+    trong prose cua mot Khoan (xem `reference_extractor.py`), KHONG phai
+    tieu de cau truc - vi ham nay khong bao gio quet tim dong tieu de
+    Chuong, `ParsedDocument.chapters` luon la [] mot cach tu nhien.
+
+    Dung LAI `_ARTICLE_RE`/`_extract_clauses` (Dieu 1 constitution - khong
+    duplicate regex/logic da co o `parse_document()`), va cung article_id
+    scheme `f"{doc_id}_dieu-{so_dieu}"` (dong bo voi `reference_extractor.py`).
+
+    `doc_id`: do CALLER truyen vao san (khac voi `parse_document()` - ham
+    nay KHONG tu tinh doc_id, vi title van ban dep khong the suy ra tu mot
+    file-mot-Dieu - xem brief, out of scope). Document `title` luon de rong.
+
+    `fallback_so_dieu`: dung khi dong tieu de KHONG khop pattern "Dieu N."
+    (input bat thuong) - neu duoc truyen, dung so nay lam so_dieu VA ghi
+    log canh bao ro rang (khong im lang coi nhu khong co gi xay ra). Neu
+    dong tieu de khong khop VA khong co fallback, ham nay RAISE ValueError
+    ro rang - KHONG doan bua so Dieu (khac voi `parse_document()`, ham do
+    "khong crash tren input bat thuong" vi no xu ly toan bo corpus multi-
+    Dieu va mot Dieu loi khong duoc lam mat ca van ban; o day moi file CHI
+    la mot Dieu, mot heading loi ma khong co fallback nghia la khong co
+    cach nao xac dinh duoc article_id dung - crash ro rang tot hon la tao
+    ra mot Article voi so_dieu sai/doan bua)."""
+    lines = text.split("\n")
+    n = len(lines)
+
+    i = 0
+    while i < n and not lines[i].strip():
+        i += 1
+
+    if i < n:
+        heading_line = lines[i].strip()
+        if heading_line.startswith("#"):
+            heading_line = heading_line.lstrip("#").strip()
+        body_lines = lines[i + 1 :]
+    else:
+        heading_line = ""
+        body_lines = []
+
+    article_match = _ARTICLE_RE.match(heading_line)
+    if article_match:
+        so_dieu = int(article_match.group(1))
+        heading_title = article_match.group(2).strip()
+    elif fallback_so_dieu is not None:
+        so_dieu = fallback_so_dieu
+        heading_title = heading_line
+        logger.warning(
+            "parse_article_chunk: dong tieu de khong khop pattern 'Dieu "
+            "N.' (heading=%r, doc_id=%r) - dung fallback_so_dieu=%d, "
+            "KHONG parse duoc tieu de Dieu tu heading nay",
+            heading_line,
+            doc_id,
+            fallback_so_dieu,
+        )
+    else:
+        raise ValueError(
+            f"parse_article_chunk: khong parse duoc dong tieu de Dieu tu "
+            f"heading={heading_line!r} (doc_id={doc_id!r}) va khong co "
+            "fallback_so_dieu de dung thay the - khong the xac dinh so_dieu."
+        )
+
+    article_id = f"{doc_id}_dieu-{so_dieu}"
+
+    full_text_parts = []
+    if heading_title:
+        full_text_parts.append(heading_title)
+    body_text = "\n".join(body_lines).strip()
+    if body_text:
+        full_text_parts.append(body_text)
+    full_text = "\n".join(full_text_parts).strip()
+    preview = full_text[:_PREVIEW_MAX_CHARS]
+
+    clauses = _extract_clauses(body_lines, article_id)
+
+    article = Article(
+        article_id=article_id,
+        so_dieu=so_dieu,
+        noi_dung_preview=preview,
+        full_text=full_text,
+        clauses=clauses,
+    )
+
+    return ParsedDocument(doc_id=doc_id, title="", chapters=[], articles=[article])

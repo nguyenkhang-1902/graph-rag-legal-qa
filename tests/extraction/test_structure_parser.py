@@ -20,12 +20,15 @@ Cac case theo brief:
 """
 import dataclasses
 
+import pytest
+
 from app.extraction.slugify import slugify_doc_name
 from app.extraction.structure_parser import (
     Article,
     Chapter,
     Clause,
     ParsedDocument,
+    parse_article_chunk,
     parse_document,
 )
 
@@ -399,3 +402,143 @@ def test_returns_dataclass_instances():
     assert isinstance(parsed.chapters[0], Chapter)
     assert isinstance(parsed.chapters[0].articles[0], Article)
     assert isinstance(parsed.chapters[0].articles[0].clauses[0], Clause)
+
+
+# === parse_article_chunk (task-2f) =========================================
+#
+# Corpus that (447 file mau da fetch tu Zalo legal corpus) xac nhan: MOI
+# file la DUY NHAT mot Dieu, dong "# {title}" CHINH LA dong tieu de Dieu
+# ("Dieu N. <tieu de>"), khong phai tieu de van ban nhieu Dieu nhu
+# `parse_document()` gia dinh. Cac fixture A/B/C duoi day la NGUYEN VAN vi
+# du that tu task-2f-brief.md (khong phai synthetic nhu cac case tren).
+
+# --- Example A: nhieu Khoan, co tu-trich-dan "khoan 1 Dieu nay" ------------
+
+_ARTICLE_CHUNK_A = """# Điều 7. Giá trị pháp lý của giấy tờ, văn bản đã được chứng thực không đúng quy định pháp luật
+
+1. Các giấy tờ, văn bản được chứng thực bản sao từ bản chính, chứng thực chữ ký không đúng quy định tại Nghị định số 23/2015/NĐ-CP  và Thông tư này thì không có giá trị pháp lý.
+2. Chủ tịch Ủy ban nhân dân cấp huyện có trách nhiệm ban hành quyết định hủy bỏ giá trị pháp lý của giấy tờ, văn bản chứng thực quy định tại khoản 1 Điều này đối với giấy tờ, văn bản do Phòng Tư pháp chứng thực.
+3. Người đứng đầu Cơ quan đại diện ngoại giao có trách nhiệm ban hành quyết định hủy bỏ giá trị pháp lý của giấy tờ, văn bản chứng thực quy định tại khoản 1 Điều này.
+4. Việc ban hành quyết định hủy bỏ giá trị pháp lý và đăng tải thông tin thực hiện ngay sau khi phát hiện giấy tờ, văn bản đó được chứng thực không đúng quy định pháp luật.
+"""
+
+
+def test_parse_article_chunk_example_a_multiple_clauses():
+    parsed = parse_article_chunk(_ARTICLE_CHUNK_A, doc_id="01-2020-tt-btp")
+
+    assert isinstance(parsed, ParsedDocument)
+    assert parsed.doc_id == "01-2020-tt-btp"
+    assert parsed.title == ""
+    assert parsed.chapters == []
+    assert len(parsed.articles) == 1
+
+    dieu = parsed.articles[0]
+    assert isinstance(dieu, Article)
+    assert dieu.so_dieu == 7
+    assert dieu.article_id == "01-2020-tt-btp_dieu-7"
+    assert dieu.article_id.endswith("_dieu-7")
+    assert len(dieu.clauses) == 4
+    assert [c.so_khoan for c in dieu.clauses] == [1, 2, 3, 4]
+    assert dieu.clauses[0].clause_id == "01-2020-tt-btp_dieu-7_khoan-1"
+    assert "không có giá trị pháp lý" in dieu.clauses[0].noi_dung
+    # tu-trich-dan "khoan 1 Dieu nay" nam TRONG prose cua Khoan 2/3, khong
+    # phai o dau dong -> khong tao Khoan moi, van thuoc ve Khoan 2/3.
+    assert "khoản 1 Điều này" in dieu.clauses[1].noi_dung
+    assert "khoản 1 Điều này" in dieu.clauses[2].noi_dung
+
+
+# --- Example B: mot doan van duy nhat, khong co Khoan nao ------------------
+
+_ARTICLE_CHUNK_B = """# Điều 8. Tổ chức Kiểm lâm trung ương
+
+Kiểm lâm trung ương là tổ chức hành chính thuộc cơ quan tham mưu, giúp Bộ trưởng Bộ Nông nghiệp và Phát triển nông thôn quản lý nhà nước về lâm nghiệp.
+"""
+
+
+def test_parse_article_chunk_example_b_no_clauses_still_creates_article():
+    parsed = parse_article_chunk(_ARTICLE_CHUNK_B, doc_id="01-2019-nd-cp")
+
+    assert len(parsed.articles) == 1
+    dieu = parsed.articles[0]
+    assert dieu.so_dieu == 8
+    assert dieu.article_id == "01-2019-nd-cp_dieu-8"
+    assert dieu.clauses == []  # khong bi skip chi vi khong co Khoan
+    assert "Kiểm lâm trung ương" in dieu.full_text
+
+
+# --- Example C: "Chuong IV" chi la trich dan trong Khoan, KHONG phai -------
+# --- tieu de Chuong -> khong tao Chapter, khong pha vo Khoan detection -----
+
+_ARTICLE_CHUNK_C = """# Điều 6. Giám định xây dựng
+
+1. Nội dung giám định xây dựng:
+a) Giám định chất lượng khảo sát xây dựng, thiết kế xây dựng;
+b) Giám định nguyên nhân hư hỏng, sự cố công trình xây dựng theo quy định tại Chương IV Nghị định này;
+2. Cơ quan có thẩm quyền chủ trì tổ chức giám định xây dựng.
+"""
+
+
+def test_parse_article_chunk_example_c_chuong_citation_not_a_chapter():
+    parsed = parse_article_chunk(_ARTICLE_CHUNK_C, doc_id="06-2021-nd-cp")
+
+    assert len(parsed.chapters) == 0  # "Chuong IV" trong Khoan b) KHONG tao Chapter
+    assert len(parsed.articles) == 1
+
+    dieu = parsed.articles[0]
+    assert dieu.so_dieu == 6
+    assert dieu.article_id == "06-2021-nd-cp_dieu-6"
+    assert len(dieu.clauses) == 2
+    assert dieu.clauses[0].so_khoan == 1
+    # Khoan a)/b) van nam trong noi dung Khoan 1 (khong bi tach thanh Khoan
+    # moi), va "Chuong IV" van con nguyen trong noi dung do (khong bi mat).
+    assert "Chương IV" in dieu.clauses[0].noi_dung
+    assert dieu.clauses[1].so_khoan == 2
+
+
+# --- Fallback / error khi dong tieu de khong khop pattern "Dieu N." -------
+
+
+def test_parse_article_chunk_uses_fallback_so_dieu_when_heading_unparseable():
+    text = "# Mot dong tieu de khong dung dinh dang Dieu N.\n\nNoi dung.\n"
+
+    parsed = parse_article_chunk(text, doc_id="doc-la", fallback_so_dieu=42)
+
+    dieu = parsed.articles[0]
+    assert dieu.so_dieu == 42
+    assert dieu.article_id == "doc-la_dieu-42"
+
+
+def test_parse_article_chunk_raises_when_heading_unparseable_and_no_fallback():
+    text = "# Mot dong tieu de khong dung dinh dang Dieu N.\n\nNoi dung.\n"
+
+    with pytest.raises(ValueError):
+        parse_article_chunk(text, doc_id="doc-la")
+
+
+# --- full_text/noi_dung_preview theo dung quy uoc nhu parse_document ------
+
+
+def test_parse_article_chunk_preview_truncated_full_text_untruncated():
+    long_sentence = "Đây là một câu rất dài được lặp lại nhiều lần. " * 10
+    text = f"# Điều 1. Điều khoản dài\n\n{long_sentence}\n"
+
+    parsed = parse_article_chunk(text, doc_id="vb-dai")
+    dieu = parsed.articles[0]
+
+    full_text = f"Điều khoản dài\n{long_sentence.strip()}"
+    assert len(full_text) > 200
+    assert dieu.full_text == full_text
+    assert len(dieu.noi_dung_preview) <= 200
+    assert dieu.noi_dung_preview == full_text[:200]
+
+
+def test_parse_article_chunk_heading_without_markdown_hash_prefix():
+    # Brief: "handle it whether or not the '#'/markdown prefix is present".
+    text = "Điều 3. Không có dấu thăng đầu dòng\n\nNội dung không có tiêu đề markdown.\n"
+
+    parsed = parse_article_chunk(text, doc_id="doc-no-hash")
+    dieu = parsed.articles[0]
+
+    assert dieu.so_dieu == 3
+    assert dieu.article_id == "doc-no-hash_dieu-3"
+    assert "Không có dấu thăng đầu dòng" in dieu.full_text
