@@ -122,6 +122,21 @@ def test_cross_document_citation_nghi_quyet():
     assert refs[0].target_article_id == "nghi-quyet-42-2017-qh14_dieu-8"
 
 
+def test_article_number_normalization_strips_leading_zero(): # task-2c finding 2
+    # structure_parser.py chuan hoa so Dieu qua int() khi xay dung
+    # article_id (T008 - "Dieu 05" -> "..._dieu-5", khong zero-pad, xem
+    # test cung ten trong test_structure_parser.py). Neu reference_extractor
+    # khong lam dieu tuong tu, mot trich dan "Dieu 05" se resolve thanh
+    # "..._dieu-05" va khong bao gio khop voi id Article node that trong
+    # graph -> REFERENCES edge treo am tham luc ingest.
+    text = "...được quy định tại Điều 05 Luật Doanh nghiệp 2020..."
+    refs = extract_references(text, current_doc_slug="luat-xyz")
+
+    assert len(refs) == 1
+    assert refs[0].target_article_id == "luat-doanh-nghiep-2020_dieu-5"
+    assert not refs[0].target_article_id.endswith("_dieu-05")
+
+
 def test_returns_extracted_reference_dataclass_instances():
     text = "Điều 1 quy định..."
     refs = extract_references(text, current_doc_slug="luat-xyz")

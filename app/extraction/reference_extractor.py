@@ -81,7 +81,15 @@ def extract_references(text: str, current_doc_slug: str) -> list[ExtractedRefere
         article_num = match.group("article_num")
         doc_name = match.group("doc_name")
         doc_slug = slugify_doc_name(doc_name) if doc_name else current_doc_slug
-        target_article_id = f"{doc_slug}_dieu-{article_num}"
+        # Chuan hoa so Dieu qua int() (bo leading zero, vd "05" -> "5") de
+        # dong bo CHINH XAC voi cach structure_parser.py xay dung article_id
+        # (T008 - quyet dinh khong zero-pad). Neu khong, mot trich dan viet
+        # "Dieu 05" se resolve thanh "..._dieu-05", khong bao gio khop voi
+        # id "..._dieu-5" cua Article node that trong graph -> REFERENCES
+        # edge treo (dangling) am tham luc ingest (xem task-2c review
+        # finding 2).
+        so_dieu = int(article_num)
+        target_article_id = f"{doc_slug}_dieu-{so_dieu}"
         references.append(
             ExtractedReference(
                 target_article_id=target_article_id,
