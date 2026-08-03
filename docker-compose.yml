@@ -3,8 +3,13 @@ services:
     image: neo4j:5-community
     container_name: graph-rag-legal-qa-neo4j
     restart: unless-stopped
-    env_file:
-      - .env
+    # KHÔNG dùng `env_file: .env` — Neo4j image tự động parse MỌI biến
+    # tiền tố NEO4J_* thành server config setting (vd NEO4J_URI -> setting
+    # "URI", NEO4J_USER -> "USER", không tồn tại -> crash loop
+    # "Unrecognized setting"). .env chứa biến của app (NEO4J_URI/OLLAMA_*/...),
+    # không phải config Neo4j server. `${NEO4J_PASSWORD}` bên dưới vẫn được
+    # docker compose tự đọc từ .env ở cấp interpolation (cơ chế độc lập với
+    # env_file) nên không cần khai báo lại.
     environment:
       # neo4j:5-community REQUIRES auth to be explicitly enabled (Điều 10
       # constitution — không bao giờ NEO4J_AUTH=none, kể cả local demo).
