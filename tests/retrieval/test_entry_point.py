@@ -14,7 +14,6 @@ SIMILARITY_THRESHOLD mac dinh (config.py) la 0.75 - cac test mock duoi day
 dung gia tri nay lam moc, voi distance/similarity cu the da tinh tay trong
 comment o moi test.
 """
-import numpy as np
 import pytest
 from unittest.mock import MagicMock
 

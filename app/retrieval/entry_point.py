@@ -56,10 +56,8 @@ def find_entry_points(query: str, top_k: int = 5) -> list[EntryPointResult]:
     collection = get_chroma_collection()
     raw = collection.query(query_embeddings=[query_embedding], n_results=top_k)
 
-    ids = raw.get("ids") or [[]]
-    distances = raw.get("distances") or [[]]
-    result_ids = ids[0] if ids else []
-    result_distances = distances[0] if distances else []
+    result_ids = (raw.get("ids") or [[]])[0]
+    result_distances = (raw.get("distances") or [[]])[0]
 
     results = [
         EntryPointResult(article_id=article_id, similarity=1.0 - distance)
