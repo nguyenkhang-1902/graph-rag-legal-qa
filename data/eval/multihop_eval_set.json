@@ -1,0 +1,235 @@
+{
+  "_meta": {
+    "purpose": "Bo cau hoi multi-hop that de danh gia SC-001 (Recall@k/MRR sau nay, T017) va nghiem thu Phase 3 checkpoint (US1). Moi cau soan tu chuoi REFERENCES that trong graph da ingest (xem scripts/build_multihop_eval_set.py, data/eval/multihop_candidates.json).",
+    "authored_by": "Claude (agent, phien lam viec nay) - doc truc tiep noi dung that tu cac chuoi ung vien, khong dung LLM/API tra phi de sinh tu dong, dung cach doc-hieu that de viet cau hoi tu nhien.",
+    "approval_status": "CHUA DUYET - theo spec.md Assumptions (\"Tap cau hoi multi-hop dung de test SC-001 do Claude soan dua tren corpus that, Khang duyet lai truoc khi dung lam tieu chi nghiem thu chinh thuc\"). Khang can xem lai tung cau (dac biet expected_article_ids) truoc khi dung chinh thuc cho T017 benchmark.",
+    "how_to_verify_a_question": "Doc lai noi dung that trong data/eval/multihop_candidates.json theo article_id, doi chieu voi 'expected_article_ids' va 'reasoning' cua tung cau - xac nhan cau tra loi dung THAT can ca cac dieu do (khong tra loi duoc chi voi 1 dieu), va cau hoi khong the tra loi dung neu thieu bat ky dieu nao trong expected_article_ids.",
+    "count": 32
+  },
+  "questions": [
+    {
+      "id": "mh-001",
+      "question": "Khi có báo động lũ ở cấp I, đội tuần tra canh gác đê phải bố trí bao nhiêu người và có nhiệm vụ cụ thể gì trong việc theo dõi, xử lý sự cố đê điều?",
+      "expected_article_ids": ["01-2009-tt-bnn_dieu-8", "01-2009-tt-bnn_dieu-4"],
+      "relationship_path": [{"from": "01-2009-tt-bnn_dieu-8", "to": "01-2009-tt-bnn_dieu-1", "type": "REFERENCES"}, {"from": "01-2009-tt-bnn_dieu-1", "to": "01-2009-tt-bnn_dieu-4", "type": "REFERENCES"}],
+      "reasoning": "Điều 8 quy định số người bố trí (ngày 02, đêm 04 người ở cấp I); Điều 4 quy định nhiệm vụ cụ thể (theo dõi diễn biến, báo cáo hư hỏng, xử lý giờ đầu). Cần cả hai để trả lời đầy đủ."
+    },
+    {
+      "id": "mh-002",
+      "question": "Thông tư 01/2009/TT-BNN hướng dẫn tuần tra canh gác đê áp dụng cho những tuyến đê nào, và văn bản nào quy định việc phân loại, phân cấp các tuyến đê đó?",
+      "expected_article_ids": ["01-2009-tt-bnn_dieu-1"],
+      "relationship_path": [],
+      "reasoning": "Điều 1 tự trả lời được (phạm vi áp dụng + dẫn chiếu Điều 4 Luật Đê Điều) - câu hỏi kiểm tra khả năng tìm đúng entry point kèm external reference (Luật Đê Điều không nằm trong corpus)."
+    },
+    {
+      "id": "mh-003",
+      "question": "Theo quy định về nghi thức treo cờ trong lễ ký văn kiện, quốc kỳ Việt Nam được đặt ở vị trí nào so với cờ đối tác, và quy định này có gì khác với việc treo cờ trong các hoạt động đối ngoại khác như mít tinh, kỷ niệm?",
+      "expected_article_ids": ["01-2010-tt-bng_dieu-12", "01-2010-tt-bng_dieu-14"],
+      "relationship_path": [{"from": "01-2010-tt-bng_dieu-17", "to": "01-2010-tt-bng_dieu-14", "type": "REFERENCES"}, {"from": "01-2010-tt-bng_dieu-14", "to": "01-2010-tt-bng_dieu-12", "type": "REFERENCES"}],
+      "reasoning": "Điều 12 quy định vị trí cờ trong lễ ký kết (Việt Nam bên phải với 1 đối tác); Điều 14 quy định vị trí cờ trong hoạt động khác (mít tinh...). Cần so sánh cả hai."
+    },
+    {
+      "id": "mh-004",
+      "question": "Trong lễ chiêu đãi tiếp khách chào mừng Quốc khánh, cách treo quốc kỳ được thực hiện theo quy định nào, và quy định đó có nguyên tắc gì về vị trí/kích thước quốc kỳ so với cờ nước tiếp nhận?",
+      "expected_article_ids": ["01-2010-tt-bng_dieu-17", "01-2010-tt-bng_dieu-14"],
+      "relationship_path": [{"from": "01-2010-tt-bng_dieu-17", "to": "01-2010-tt-bng_dieu-14", "type": "REFERENCES"}],
+      "reasoning": "Điều 17 khoản 4 dẫn chiếu cách treo cờ theo Điều 14; Điều 14 quy định chi tiết kích thước/vị trí. Cần cả hai."
+    },
+    {
+      "id": "mh-005",
+      "question": "Hồ sơ xin cấp Giấy phép nhập cảnh thi hài, hài cốt về Việt Nam phải lưu trữ trong bao lâu, và những giấy tờ nào phải có trong hồ sơ đó?",
+      "expected_article_ids": ["01-2011-tt-bng_dieu-7", "01-2011-tt-bng_dieu-6"],
+      "relationship_path": [{"from": "01-2011-tt-bng_dieu-7", "to": "01-2011-tt-bng_dieu-6", "type": "REFERENCES"}],
+      "reasoning": "Điều 7 quy định thời hạn lưu trữ (03 năm); Điều 6 quy định chi tiết các giấy tờ trong hồ sơ. Câu hỏi cần kết hợp cả hai."
+    },
+    {
+      "id": "mh-006",
+      "question": "Ai có thể đứng tên đề nghị cấp Giấy phép nhập cảnh thi hài, hài cốt về Việt Nam, và người đó cần nộp giấy tờ gì để chứng minh mình thuộc diện được đề nghị?",
+      "expected_article_ids": ["01-2011-tt-bng_dieu-5", "01-2011-tt-bng_dieu-6"],
+      "relationship_path": [{"from": "01-2011-tt-bng_dieu-6", "to": "01-2011-tt-bng_dieu-5", "type": "REFERENCES"}],
+      "reasoning": "Điều 5 liệt kê ai được đề nghị (thân nhân, người được ủy quyền, cơ quan chủ quản); Điều 6 khoản 1.b yêu cầu giấy tờ chứng minh thuộc diện nêu tại Điều 5."
+    },
+    {
+      "id": "mh-007",
+      "question": "Thi hài của người chết vì mắc bệnh truyền nhiễm nhóm A có được đưa về Việt Nam không, và những ai nói chung được phép đưa thi hài, hài cốt về nước theo quy định?",
+      "expected_article_ids": ["01-2011-tt-bng_dieu-3"],
+      "relationship_path": [],
+      "reasoning": "Điều 3 tự đủ để trả lời (khoản 1 liệt kê diện được phép, khoản 3 cấm với bệnh truyền nhiễm nhóm A) - kiểm tra entry-point search tìm đúng 1 điều khi không cần multi-hop."
+    },
+    {
+      "id": "mh-008",
+      "question": "Khi tiếp nhận hồ sơ đề nghị chứng nhận lãnh sự, hợp pháp hóa lãnh sự, cơ quan có thẩm quyền xử lý con dấu/chữ ký trên giấy tờ như thế nào, và thời hạn giải quyết hồ sơ được tính dựa trên căn cứ gì?",
+      "expected_article_ids": ["01-2012-tt-bng_dieu-11", "01-2012-tt-bng_dieu-12"],
+      "relationship_path": [{"from": "01-2012-tt-bng_dieu-10", "to": "01-2012-tt-bng_dieu-11", "type": "REFERENCES"}, {"from": "01-2012-tt-bng_dieu-11", "to": "01-2012-tt-bng_dieu-12", "type": "REFERENCES"}],
+      "reasoning": "Điều 11 quy định cách chứng nhận con dấu/chữ ký; Điều 12 quy định thời hạn giải quyết tính theo số lượng giấy tờ. Cần cả hai."
+    },
+    {
+      "id": "mh-009",
+      "question": "Giấy tờ tùy thân dùng trong hồ sơ đề nghị chứng nhận lãnh sự bao gồm những loại nào, và nếu hồ sơ hợp lệ thì cơ quan có thẩm quyền xử lý con dấu/chữ ký ra sao?",
+      "expected_article_ids": ["01-2012-tt-bng_dieu-9", "01-2012-tt-bng_dieu-11"],
+      "relationship_path": [{"from": "01-2012-tt-bng_dieu-10", "to": "01-2012-tt-bng_dieu-9", "type": "REFERENCES"}, {"from": "01-2012-tt-bng_dieu-10", "to": "01-2012-tt-bng_dieu-11", "type": "REFERENCES"}],
+      "reasoning": "Điều 9 định nghĩa giấy tờ tùy thân hợp lệ; Điều 11 quy định xử lý con dấu/chữ ký. Điều 10 là entry point liên kết cả hai (REFERENCES tới cả 9 và 11)."
+    },
+    {
+      "id": "mh-010",
+      "question": "Nếu tổ chức tín dụng không thanh toán đúng hạn để nhận lại giấy tờ có giá đã chiết khấu với Ngân hàng Nhà nước, Ngân hàng Nhà nước xử lý vi phạm ra sao, và thủ tục giao nhận/hoàn trả giấy tờ có giá được chiết khấu diễn ra trong thời hạn nào?",
+      "expected_article_ids": ["01-2012-tt-nhnn_dieu-17", "01-2012-tt-nhnn_dieu-14"],
+      "relationship_path": [{"from": "01-2012-tt-nhnn_dieu-19", "to": "01-2012-tt-nhnn_dieu-17", "type": "REFERENCES"}, {"from": "01-2012-tt-nhnn_dieu-17", "to": "01-2012-tt-nhnn_dieu-14", "type": "REFERENCES"}],
+      "reasoning": "Điều 17 quy định xử lý vi phạm (trích tài khoản, nợ quá hạn 150% lãi suất...); Điều 14 quy định thời hạn giao nhận/hoàn trả (tối đa 15 ngày làm việc). Cần cả hai."
+    },
+    {
+      "id": "mh-011",
+      "question": "Tòa án có trách nhiệm bồi thường trong những trường hợp nào liên quan đến việc áp dụng biện pháp khẩn cấp tạm thời, và văn bản nào được dùng để xác định hành vi trái pháp luật của người tiến hành tố tụng làm căn cứ yêu cầu bồi thường?",
+      "expected_article_ids": ["01-2012-ttlt-tandtc-vksndtc-btp_dieu-2", "01-2012-ttlt-tandtc-vksndtc-btp_dieu-3"],
+      "relationship_path": [{"from": "01-2012-ttlt-tandtc-vksndtc-btp_dieu-10", "to": "01-2012-ttlt-tandtc-vksndtc-btp_dieu-3", "type": "REFERENCES"}, {"from": "01-2012-ttlt-tandtc-vksndtc-btp_dieu-3", "to": "01-2012-ttlt-tandtc-vksndtc-btp_dieu-2", "type": "REFERENCES"}],
+      "reasoning": "Điều 2 liệt kê các trường hợp Tòa án có trách nhiệm bồi thường (áp dụng BPKCTT sai); Điều 3 quy định văn bản xác định hành vi trái pháp luật làm căn cứ. Cần cả hai để trả lời đầy đủ."
+    },
+    {
+      "id": "mh-012",
+      "question": "Hồ sơ yêu cầu bồi thường nhà nước trong tố tụng dân sự cần có những tài liệu gì, và văn bản xác định hành vi trái pháp luật của người tiến hành tố tụng được quy định cụ thể ra sao?",
+      "expected_article_ids": ["01-2012-ttlt-tandtc-vksndtc-btp_dieu-10", "01-2012-ttlt-tandtc-vksndtc-btp_dieu-3"],
+      "relationship_path": [{"from": "01-2012-ttlt-tandtc-vksndtc-btp_dieu-10", "to": "01-2012-ttlt-tandtc-vksndtc-btp_dieu-3", "type": "REFERENCES"}],
+      "reasoning": "Điều 10 quy định hồ sơ yêu cầu bồi thường (đơn, tài liệu chứng cứ); Điều 10 khoản 1.b1 dẫn chiếu văn bản xác định hành vi trái pháp luật theo Điều 3. Cần cả hai."
+    },
+    {
+      "id": "mh-013",
+      "question": "Người tiến hành tố tụng có nghĩa vụ hoàn trả tiền bồi thường nhà nước nhưng không thực hiện thì bị xử lý thế nào, và điều đó dựa trên căn cứ nào để xác định hành vi trái pháp luật ban đầu?",
+      "expected_article_ids": ["01-2012-ttlt-tandtc-vksndtc-btp_dieu-25", "01-2012-ttlt-tandtc-vksndtc-btp_dieu-3"],
+      "relationship_path": [{"from": "01-2012-ttlt-tandtc-vksndtc-btp_dieu-10", "to": "01-2012-ttlt-tandtc-vksndtc-btp_dieu-3", "type": "REFERENCES"}, {"from": "01-2012-ttlt-tandtc-vksndtc-btp_dieu-3", "to": "01-2012-ttlt-tandtc-vksndtc-btp_dieu-25", "type": "REFERENCES"}],
+      "reasoning": "Điều 25 quy định hình thức xử lý khi không hoàn trả (kỷ luật, thu hồi); Điều 3 là căn cứ xác định hành vi trái pháp luật dẫn tới nghĩa vụ bồi thường/hoàn trả ban đầu."
+    },
+    {
+      "id": "mh-014",
+      "question": "Điều kiện để một công chức xã được xem xét bổ nhiệm làm Chỉ huy trưởng Ban chỉ huy quân sự cấp xã là gì, và căn cứ để lập quy hoạch chức danh này ở cấp xã dựa trên những yếu tố nào?",
+      "expected_article_ids": ["01-2013-ttlt-bnv-bqp_dieu-17", "01-2013-ttlt-bnv-bqp_dieu-4"],
+      "relationship_path": [{"from": "01-2013-ttlt-bnv-bqp_dieu-17", "to": "01-2013-ttlt-bnv-bqp_dieu-4", "type": "REFERENCES"}],
+      "reasoning": "Điều 17 quy định điều kiện bổ nhiệm (bằng cấp, tiêu chuẩn); Điều 4 quy định căn cứ lập quy hoạch (số lượng, trình độ, hoàn cảnh). Cần cả hai."
+    },
+    {
+      "id": "mh-015",
+      "question": "Quy trình chọn nguồn bổ sung quy hoạch Chỉ huy trưởng, Chỉ huy phó Ban chỉ huy quân sự cấp xã được thực hiện qua các bước nào, và những tổ chức/cá nhân nào có quyền giới thiệu nguồn quy hoạch?",
+      "expected_article_ids": ["01-2013-ttlt-bnv-bqp_dieu-8", "01-2013-ttlt-bnv-bqp_dieu-7"],
+      "relationship_path": [{"from": "01-2013-ttlt-bnv-bqp_dieu-9", "to": "01-2013-ttlt-bnv-bqp_dieu-8", "type": "REFERENCES"}, {"from": "01-2013-ttlt-bnv-bqp_dieu-8", "to": "01-2013-ttlt-bnv-bqp_dieu-7", "type": "REFERENCES"}],
+      "reasoning": "Điều 8 quy định quy trình 5 bước; Điều 8 khoản 1 dẫn chiếu danh sách tổ chức/cá nhân giới thiệu nguồn tại Điều 7. Cần cả hai."
+    },
+    {
+      "id": "mh-016",
+      "question": "Cơ quan đăng ký dấu nghiệp vụ giám định thương mại có trách nhiệm gì, và hồ sơ đăng ký dấu nghiệp vụ ban đầu cần những giấy tờ nào?",
+      "expected_article_ids": ["01-2015-tt-bct_dieu-3", "01-2015-tt-bct_dieu-4"],
+      "relationship_path": [{"from": "01-2015-tt-bct_dieu-3", "to": "01-2015-tt-bct_dieu-5", "type": "REFERENCES"}, {"from": "01-2015-tt-bct_dieu-5", "to": "01-2015-tt-bct_dieu-4", "type": "REFERENCES"}],
+      "reasoning": "Điều 3 quy định trách nhiệm cơ quan đăng ký (Sở Công Thương); Điều 4 quy định hồ sơ đăng ký ban đầu. Cần cả hai (dù đường đi qua Điều 5 về đăng ký thay đổi)."
+    },
+    {
+      "id": "mh-017",
+      "question": "Khi thương nhân muốn thay đổi, bổ sung dấu nghiệp vụ trong chứng thư giám định, thủ tục thực hiện theo quy định nào, và hồ sơ đăng ký ban đầu (lần đầu) cần những gì?",
+      "expected_article_ids": ["01-2015-tt-bct_dieu-5", "01-2015-tt-bct_dieu-4"],
+      "relationship_path": [{"from": "01-2015-tt-bct_dieu-5", "to": "01-2015-tt-bct_dieu-4", "type": "REFERENCES"}],
+      "reasoning": "Điều 5 khoản 2 dẫn chiếu trực tiếp: trình tự/hồ sơ thay đổi thực hiện theo Điều 4. Cần đọc cả hai để hiểu đầy đủ."
+    },
+    {
+      "id": "mh-018",
+      "question": "Việc thành lập hội đồng trường nhiệm kỳ đầu tiên ở một trường cao đẳng được thực hiện theo thủ tục nào, và hội đồng trường đó có nhiệm vụ, quyền hạn gì?",
+      "expected_article_ids": ["01-2015-tt-bgddt_dieu-10", "01-2015-tt-bgddt_dieu-9"],
+      "relationship_path": [{"from": "01-2015-tt-bgddt_dieu-10", "to": "01-2015-tt-bgddt_dieu-9", "type": "REFERENCES"}],
+      "reasoning": "Điều 10 quy định thủ tục thành lập hội đồng trường; Điều 9 quy định nhiệm vụ/quyền hạn/thành phần hội đồng trường. Cần cả hai."
+    },
+    {
+      "id": "mh-019",
+      "question": "Phó hiệu trưởng trường cao đẳng cần đáp ứng tiêu chuẩn gì để được bổ nhiệm, và việc bổ nhiệm/miễn nhiệm phó hiệu trưởng được thực hiện theo quy định áp dụng cho chức danh nào khác?",
+      "expected_article_ids": ["01-2015-tt-bgddt_dieu-12", "01-2015-tt-bgddt_dieu-11"],
+      "relationship_path": [{"from": "01-2015-tt-bgddt_dieu-12", "to": "01-2015-tt-bgddt_dieu-11", "type": "REFERENCES"}],
+      "reasoning": "Điều 12 quy định tiêu chuẩn Phó hiệu trưởng, khoản 4 dẫn chiếu: bổ nhiệm/miễn nhiệm thực hiện như hiệu trưởng (Điều 11). Cần cả hai."
+    },
+    {
+      "id": "mh-020",
+      "question": "Đối với người bệnh có hành vi nguy cơ cao hoặc mắc bệnh lao, nhân viên y tế phải làm gì trong quy trình tư vấn phòng chống HIV/AIDS, và nội dung tư vấn dự phòng cụ thể được quy định ở văn bản nào khác?",
+      "expected_article_ids": ["01-2015-tt-byt_dieu-8", "01-2015-tt-byt_dieu-4"],
+      "relationship_path": [{"from": "01-2015-tt-byt_dieu-8", "to": "01-2015-tt-byt_dieu-4", "type": "REFERENCES"}],
+      "reasoning": "Điều 8 khoản 2 liệt kê đối tượng cần tư vấn/giới thiệu xét nghiệm; Điều 4 dẫn chiếu nội dung tư vấn dự phòng cụ thể sang Thông tư 06/2012/TT-BYT (external reference, không có trong corpus) - kiểm tra hệ thống xử lý external reference đúng cách."
+    },
+    {
+      "id": "mh-021",
+      "question": "Điều kiện về cơ sở vật chất để tổ chức hoạt động tư vấn phòng chống HIV/AIDS trong cơ sở y tế là gì, và quy trình tư vấn khi người bệnh chủ động đề xuất xét nghiệm HIV diễn ra như thế nào?",
+      "expected_article_ids": ["01-2015-tt-byt_dieu-6", "01-2015-tt-byt_dieu-8"],
+      "relationship_path": [{"from": "01-2015-tt-byt_dieu-8", "to": "01-2015-tt-byt_dieu-4", "type": "REFERENCES"}],
+      "reasoning": "Điều 6 quy định điều kiện cơ sở vật chất (kín đáo, bàn ghế, trang thiết bị); Điều 8 quy định quy trình tư vấn. Hai điều không nối trực tiếp qua REFERENCES trong chain này nhưng cùng thuộc 1 văn bản, kiểm tra khả năng entry-point tìm đúng cả 2 khi câu hỏi ghép 2 khía cạnh."
+    },
+    {
+      "id": "mh-022",
+      "question": "Kinh phí giải quyết chính sách tinh giản biên chế được cấp từ nguồn nào, và mức trợ cấp cho người thôi việc ngay theo diện tinh giản biên chế được tính ra sao?",
+      "expected_article_ids": ["01-2015-ttlt-bnv-btc_dieu-10", "01-2015-ttlt-bnv-btc_dieu-7"],
+      "relationship_path": [{"from": "01-2015-ttlt-bnv-btc_dieu-10", "to": "01-2015-ttlt-bnv-btc_dieu-7", "type": "REFERENCES"}],
+      "reasoning": "Điều 10 quy định nguồn kinh phí (ngân sách được giao, ngân sách bổ sung); Điều 7 quy định mức trợ cấp cụ thể (3 tháng lương tìm việc + 1,5 tháng/năm công tác). Cần cả hai."
+    },
+    {
+      "id": "mh-023",
+      "question": "Hội đồng xác định giá trị tài liệu có vai trò gì trong việc tham mưu hủy tài liệu hết giá trị, và thẩm quyền quyết định hủy tài liệu hết giá trị thuộc về ai?",
+      "expected_article_ids": ["01-2011-qh13_dieu-18", "01-2011-qh13_dieu-28"],
+      "relationship_path": [{"from": "01-2011-qh13_dieu-18", "to": "01-2011-qh13_dieu-28", "type": "REFERENCES"}],
+      "reasoning": "Điều 18 quy định vai trò tham mưu của Hội đồng xác định giá trị tài liệu; Điều 28 quy định thẩm quyền quyết định hủy (người đứng đầu cơ quan/tổ chức). Đây là văn bản Luật (QH13), kiểm tra đa dạng loại văn bản trong bộ eval."
+    },
+    {
+      "id": "mh-024",
+      "question": "Hồ sơ hủy tài liệu hết giá trị phải được bảo quản trong bao lâu, và ai là người có thẩm quyền quyết định hủy tài liệu hết giá trị tại Lưu trữ lịch sử cấp tỉnh?",
+      "expected_article_ids": ["01-2011-qh13_dieu-28"],
+      "relationship_path": [],
+      "reasoning": "Điều 28 tự đủ để trả lời cả 2 phần của câu hỏi (khoản 1.b thẩm quyền cấp tỉnh, khoản 5 thời hạn bảo quản 20 năm) - kiểm tra trường hợp không cần multi-hop thật sự dù nằm trong candidate 2-hop."
+    },
+    {
+      "id": "mh-025",
+      "question": "Thẻ Thanh tra bị thu hồi trong những trường hợp nào, và những trường hợp nào dẫn đến việc phải đổi Thẻ Thanh tra thay vì thu hồi hẳn?",
+      "expected_article_ids": ["01-2012-tt-ttcp_dieu-11", "01-2012-tt-ttcp_dieu-8"],
+      "relationship_path": [{"from": "01-2012-tt-ttcp_dieu-11", "to": "01-2012-tt-ttcp_dieu-8", "type": "REFERENCES"}],
+      "reasoning": "Điều 11 quy định các trường hợp thu hồi (nghỉ hưu, miễn nhiệm, và dẫn chiếu các trường hợp đổi thẻ tại Điều 8 khoản 2); Điều 8 liệt kê chi tiết các trường hợp đổi thẻ. Cần cả hai."
+    },
+    {
+      "id": "mh-026",
+      "question": "Tài liệu lưu trữ liên quan đến cá nhân bị hạn chế sử dụng trong những trường hợp đặc biệt nào, và ai có thẩm quyền cho phép sử dụng hạn chế loại tài liệu đó?",
+      "expected_article_ids": ["01-2013-nd-cp_dieu-16", "01-2013-nd-cp_dieu-17"],
+      "relationship_path": [{"from": "01-2013-nd-cp_dieu-17", "to": "01-2013-nd-cp_dieu-16", "type": "REFERENCES"}],
+      "reasoning": "Điều 16 liệt kê 2 trường hợp đặc biệt (ảnh hưởng lợi ích quốc gia, chưa được cá nhân cho phép); Điều 17 quy định thẩm quyền cho phép (Bộ trưởng Bộ Nội vụ/Chủ tịch UBND tỉnh tùy cấp lưu trữ). Cần cả hai - đây là Nghị định, thêm đa dạng loại văn bản."
+    },
+    {
+      "id": "mh-027",
+      "question": "Người đang chấp hành án phạt tù được chuyển giao về Việt Nam có được hưởng chế độ giảm thời hạn, tha tù, đặc xá như người chấp hành án phạt tù khác tại Việt Nam không, và thủ tục thực hiện việc này liên quan đến quy định nào khác trong cùng thông tư?",
+      "expected_article_ids": ["01-2013-ttlt-bca-btp-bng-vksndtc-tandtc_dieu-20"],
+      "relationship_path": [],
+      "reasoning": "Điều 20 tự đủ để trả lời phần chính (khoản 2 xác nhận được hưởng chế độ như người khác), khoản 3 dẫn chiếu Điều 22 cho thủ tục cụ thể - kiểm tra entry-point + traversal 1-hop tới Điều 22 khi cần chi tiết thủ tục."
+    },
+    {
+      "id": "mh-028",
+      "question": "Người được điều động từ cơ quan khác để bổ nhiệm làm Hiệu trưởng trường cao đẳng cần đáp ứng điều kiện gì sau khi bổ nhiệm, và Phó hiệu trưởng có tiêu chuẩn tương tự như thế nào?",
+      "expected_article_ids": ["01-2015-tt-bgddt_dieu-11", "01-2015-tt-bgddt_dieu-12"],
+      "relationship_path": [{"from": "01-2015-tt-bgddt_dieu-12", "to": "01-2015-tt-bgddt_dieu-11", "type": "REFERENCES"}],
+      "reasoning": "Điều 11 khoản 1 quy định điều kiện với Hiệu trưởng (phải là giảng viên/cán bộ quản lý cơ hữu sau bổ nhiệm); Điều 12 khoản 2 có yêu cầu tương tự cho Phó hiệu trưởng. Câu hỏi kiểm tra khả năng so sánh 2 điều cùng chủ đề."
+    },
+    {
+      "id": "mh-029",
+      "question": "Đại hội đồng cổ đông của trường cao đẳng tư thục có quyền và nhiệm vụ gì liên quan đến hội đồng quản trị, và cuộc họp đại hội đồng cổ đông được coi là hợp lệ khi nào?",
+      "expected_article_ids": ["01-2015-tt-bgddt_dieu-20"],
+      "relationship_path": [],
+      "reasoning": "Điều 20 tự đủ (khoản 2.a quyền với hội đồng quản trị, khoản 4.a điều kiện hợp lệ 65% vốn góp) - kiểm tra entry-point tìm đúng 1 điều dài, nhiều nội dung."
+    },
+    {
+      "id": "mh-030",
+      "question": "Trường hợp người có nghĩa vụ hoàn trả tiền bồi thường nhà nước đã chuyển công tác sang cơ quan khác thì ai có trách nhiệm đôn đốc thực hiện nghĩa vụ đó, và căn cứ pháp lý để xác định người này thực sự có nghĩa vụ hoàn trả là gì?",
+      "expected_article_ids": ["01-2012-ttlt-tandtc-vksndtc-btp_dieu-25", "01-2012-ttlt-tandtc-vksndtc-btp_dieu-3"],
+      "relationship_path": [{"from": "01-2012-ttlt-tandtc-vksndtc-btp_dieu-24", "to": "01-2012-ttlt-tandtc-vksndtc-btp_dieu-16", "type": "REFERENCES"}, {"from": "01-2012-ttlt-tandtc-vksndtc-btp_dieu-16", "to": "01-2012-ttlt-tandtc-vksndtc-btp_dieu-10", "type": "REFERENCES"}],
+      "reasoning": "Điều 25 khoản 2 quy định trách nhiệm đôn đốc khi chuyển công tác; Điều 3 là căn cứ xác định hành vi trái pháp luật dẫn tới nghĩa vụ. Câu hỏi nối 2 điều không liền kề trực tiếp trong graph nhưng cùng chủ đề bồi thường nhà nước - kiểm tra retrieval có tìm đúng cả 2 qua nhiều entry point khác nhau không (không chỉ dựa vào 1 chain REFERENCES duy nhất)."
+    },
+    {
+      "id": "mh-031",
+      "question": "Khi hồ sơ đề nghị chứng nhận lãnh sự không đầy đủ, hợp lệ thì cơ quan có thẩm quyền xử lý ra sao, so với trường hợp giấy tờ thuộc diện bị từ chối chứng nhận theo quy định của Nghị định liên quan?",
+      "expected_article_ids": ["01-2012-tt-bng_dieu-10"],
+      "relationship_path": [],
+      "reasoning": "Điều 10 tự đủ (khoản 1 hướng dẫn bổ sung nếu thiếu, khoản 2 từ chối tiếp nhận nếu thuộc diện cấm theo Điều 9/10 Nghị định - external reference). Kiểm tra entry point 1-điều với external reference tới Nghị định."
+    },
+    {
+      "id": "mh-032",
+      "question": "So sánh: cơ quan nào có thẩm quyền cấp mới, đổi Thẻ Thanh tra, và những trường hợp nào bắt buộc phải thu hồi Thẻ Thanh tra thay vì chỉ đổi thẻ?",
+      "expected_article_ids": ["01-2012-tt-ttcp_dieu-8", "01-2012-tt-ttcp_dieu-11"],
+      "relationship_path": [{"from": "01-2012-tt-ttcp_dieu-11", "to": "01-2012-tt-ttcp_dieu-8", "type": "REFERENCES"}],
+      "reasoning": "Điều 8 khoản 3 quy định thẩm quyền cấp mới/đổi thẻ (Tổng Thanh tra Chính phủ quyết định); Điều 11 khoản 1 quy định trường hợp bắt buộc thu hồi (nghỉ hưu, từ trần, miễn nhiệm) - khác với đổi thẻ. Cần cả hai để so sánh đúng."
+    }
+  ]
+}
