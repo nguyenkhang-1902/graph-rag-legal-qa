@@ -91,8 +91,18 @@ def get_chroma_collection() -> Collection:
     thiet)."""
     if _collection_cache["instance"] is None:
         client = chromadb.PersistentClient(path=config.CHROMA_PERSIST_DIR)
+        # BGE-m3 + SIMILARITY_THRESHOLD (config.py) gia dinh cosine similarity
+        # (0..1, giong het = 1.0, khop quy uoc cua D:\RAG Chatbot\app\conflict_detection.py).
+        # Chroma mac dinh HNSW space la L2 neu khong chi dinh - PHAI chi ro
+        # "hnsw:space": "cosine" o day, neu khong SIMILARITY_THRESHOLD se vo nghia
+        # (L2 khong bi chan, khong am, THAP hon moi la giong hon - nguoc huong/khac
+        # thang do voi cosine). Luu y: metadata nay CHI ap dung khi tao collection
+        # moi - neu collection ten nay da ton tai voi metric khac, get_or_create_collection
+        # se IM LANG bo qua metadata nay (xem docstring chromadb.api.client.Client
+        # .get_or_create_collection, pinned chromadb==1.5.9).
         _collection_cache["instance"] = client.get_or_create_collection(
-            name=config.CHROMA_COLLECTION_NAME
+            name=config.CHROMA_COLLECTION_NAME,
+            metadata={"hnsw:space": "cosine"},
         )
     return _collection_cache["instance"]
 

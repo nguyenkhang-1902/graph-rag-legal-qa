@@ -105,8 +105,28 @@ def test_get_chroma_collection_uses_configured_persist_dir_and_name(monkeypatch)
 
     mock_client_cls.assert_called_once_with(path="/tmp/chroma_test")
     mock_client_instance.get_or_create_collection.assert_called_once_with(
-        name="legal_articles_test"
+        name="legal_articles_test",
+        metadata={"hnsw:space": "cosine"},
     )
+
+
+def test_get_chroma_collection_uses_cosine_hnsw_space(monkeypatch):
+    """Chroma mac dinh HNSW space la L2 neu khong chi dinh - project nay
+    dung BGE-m3 + SIMILARITY_THRESHOLD (config.py) theo quy uoc cosine
+    similarity (0..1, giong het = 1.0). Phai chi ro "hnsw:space": "cosine"
+    khi tao collection, neu khong SIMILARITY_THRESHOLD se vo nghia (L2
+    khong bi chan/khong am, thap hon moi giong hon - nguoc huong voi
+    cosine threshold)."""
+    mock_collection = MagicMock()
+    mock_client_instance = MagicMock()
+    mock_client_instance.get_or_create_collection.return_value = mock_collection
+    mock_client_cls = MagicMock(return_value=mock_client_instance)
+    monkeypatch.setattr(embedder.chromadb, "PersistentClient", mock_client_cls)
+
+    embedder.get_chroma_collection()
+
+    _, kwargs = mock_client_instance.get_or_create_collection.call_args
+    assert kwargs["metadata"] == {"hnsw:space": "cosine"}
 
 
 def test_upsert_embeddings_embeds_then_upserts_matching_batch(monkeypatch):
