@@ -16,6 +16,7 @@ import pytest
 from app.extraction.slugify import slugify_doc_name
 from app.extraction.structure_parser import Article, Chapter, ParsedDocument
 from app.ingest import (
+    ArticleIdCollisionError,
     _all_articles,
     discover_documents,
     make_batches,
@@ -218,3 +219,165 @@ def test_run_ingest_two_files_same_doc_prefix_merge_into_same_doc_id(tmp_path):
     assert so_dieu_seen == {1, 2}
     for a in articles_seen:
         assert a["article_id"] == f"{expected_doc_id}_dieu-{a['so_dieu']}"
+
+
+# === run_ingest: pre-flight article_id collision detection (T009e, =======
+# research.md ADR-003) ======================================================
+#
+# Corpus that chua ban ghi trung lap: cung mot van ban xuat hien duoi 2
+# cach viet filename khac nhau chi lech dau tieng Viet (vd "bgddt" vs
+# "bgdđt") - slugify_doc_name() gop 2 doc_prefix nay ve CUNG mot doc_id, nen
+# 2 file khac nhau tinh ra CUNG article_id. "03_2021_tt-bgddt_1.md" (khong
+# dau "đ") sap xep TRUOC "03_2021_tt-bgdđt_1.md" (co dau "đ") theo thu tu
+# sort cua discover_documents (code point 'd' < 'đ').
+
+
+def test_run_ingest_identical_duplicate_article_id_dedupes_to_one_upsert(tmp_path):
+    data_dir = tmp_path / "corpus"
+    _write_article_chunk_file(
+        data_dir, "03_2021_tt-bgddt_1.md", 1, "Pham vi", "Noi dung giong het nhau."
+    )
+    _write_article_chunk_file(
+        data_dir, "03_2021_tt-bgdđt_1.md", 1, "Pham vi", "Noi dung giong het nhau."
+    )
+
+    state_store = IngestCheckpointStore(tmp_path / "state" / "ingest_checkpoint.json")
+    mock_client = MagicMock()
+    mock_client.run.return_value = []
+
+    run_ingest(
+        data_dir,
+        batch_size=2,
+        client=mock_client,
+        state_store=state_store,
+    )
+
+    expected_doc_id = slugify_doc_name("03_2021_tt-bgddt")
+
+    # Chi file DAU TIEN (theo thu tu sort) duoc thuc su upsert - file trung
+    # noi dung bi bo qua hoan toan, khong bao gio dat toi Neo4j.
+    doc_ids_seen = _doc_id_kwargs_seen(mock_client)
+    assert doc_ids_seen == [expected_doc_id]
+
+    articles_seen = _article_kwargs_seen(mock_client)
+    assert articles_seen == [
+        {"article_id": f"{expected_doc_id}_dieu-1", "so_dieu": 1}
+    ]
+
+
+def test_run_ingest_conflicting_duplicate_article_id_raises_before_any_neo4j_call(
+    tmp_path,
+):
+    data_dir = tmp_path / "corpus"
+    _write_article_chunk_file(
+        data_dir, "03_2021_tt-bgddt_1.md", 1, "Pham vi", "Noi dung phien ban A."
+    )
+    _write_article_chunk_file(
+        data_dir, "03_2021_tt-bgdđt_1.md", 1, "Pham vi", "Noi dung phien ban B - KHAC."
+    )
+
+    state_store = IngestCheckpointStore(tmp_path / "state" / "ingest_checkpoint.json")
+    mock_client = MagicMock()
+    mock_client.run.return_value = []
+
+    with pytest.raises(ArticleIdCollisionError):
+        run_ingest(
+            data_dir,
+            batch_size=2,
+            client=mock_client,
+            state_store=state_store,
+        )
+
+    # Pre-flight thuc su - khong file nao trong corpus (kho khong chi 2 file
+    # xung dot) duoc dua toi Neo4j truoc khi raise.
+    assert mock_client.run.call_count == 0
+
+
+def test_run_ingest_collision_error_message_names_article_id_and_both_files(tmp_path):
+    data_dir = tmp_path / "corpus"
+    _write_article_chunk_file(
+        data_dir, "03_2021_tt-bgddt_1.md", 1, "Pham vi", "Noi dung phien ban A."
+    )
+    _write_article_chunk_file(
+        data_dir, "03_2021_tt-bgdđt_1.md", 1, "Pham vi", "Noi dung phien ban B - KHAC."
+    )
+
+    state_store = IngestCheckpointStore(tmp_path / "state" / "ingest_checkpoint.json")
+    mock_client = MagicMock()
+    mock_client.run.return_value = []
+
+    expected_doc_id = slugify_doc_name("03_2021_tt-bgddt")
+    expected_article_id = f"{expected_doc_id}_dieu-1"
+
+    with pytest.raises(ArticleIdCollisionError) as exc_info:
+        run_ingest(
+            data_dir,
+            batch_size=2,
+            client=mock_client,
+            state_store=state_store,
+        )
+
+    message = str(exc_info.value)
+    assert expected_article_id in message
+    assert "03_2021_tt-bgddt_1.md" in message
+    assert "03_2021_tt-bgdđt_1.md" in message
+
+
+def test_run_ingest_no_collisions_behaves_identically_to_before(tmp_path):
+    # Corpus binh thuong (khong co file nao trung article_id) - pre-flight
+    # scan khong duoc lam thay doi hanh vi quan sat duoc gi ca (Dieu 1 - chi
+    # them, khong can thiep vao duong di binh thuong).
+    data_dir = tmp_path / "corpus"
+    _write_article_chunk_file(data_dir, "01_2020_tt-btp_1.md", 1, "A", "Noi dung A.")
+    _write_article_chunk_file(data_dir, "02_2020_nd-cp_1.md", 1, "B", "Noi dung B.")
+
+    state_store = IngestCheckpointStore(tmp_path / "state" / "ingest_checkpoint.json")
+    mock_client = MagicMock()
+    mock_client.run.return_value = []
+
+    run_ingest(
+        data_dir,
+        batch_size=2,
+        client=mock_client,
+        state_store=state_store,
+    )
+
+    doc_ids_seen = _doc_id_kwargs_seen(mock_client)
+    assert doc_ids_seen == [
+        slugify_doc_name("01_2020_tt-btp"),
+        slugify_doc_name("02_2020_nd-cp"),
+    ]
+    assert len(_article_kwargs_seen(mock_client)) == 2
+
+
+def test_run_ingest_three_way_collision_two_identical_one_different_raises(tmp_path):
+    # Nhom 3 file cung article_id: 2 giong het nhau + 1 khac - BAT KY sai
+    # khac nao trong nhom cung du kich hoat raise (khong "majority wins").
+    data_dir = tmp_path / "corpus"
+    _write_article_chunk_file(
+        data_dir, "03_2021_tt-bgddt_1.md", 1, "Pham vi", "Noi dung giong het nhau."
+    )
+    _write_article_chunk_file(
+        data_dir, "03_2021_tt-bgdđt_1.md", 1, "Pham vi", "Noi dung giong het nhau."
+    )
+    # Bien the thu 3: dau caron tren "t" (NFD-decompose -> "t" + combining
+    # mark, cung bi slugify_doc_name strip het) - mot ky tu Unicode KHAC
+    # han (khong phai chi doi hoa/thuong ASCII) de tranh dung ten file tren
+    # he thong file khong phan biet hoa/thuong (Windows/NTFS).
+    _write_article_chunk_file(
+        data_dir, "03_2021_tt-bgddť_1.md", 1, "Pham vi", "Noi dung KHAC han."
+    )
+
+    state_store = IngestCheckpointStore(tmp_path / "state" / "ingest_checkpoint.json")
+    mock_client = MagicMock()
+    mock_client.run.return_value = []
+
+    with pytest.raises(ArticleIdCollisionError):
+        run_ingest(
+            data_dir,
+            batch_size=3,
+            client=mock_client,
+            state_store=state_store,
+        )
+
+    assert mock_client.run.call_count == 0

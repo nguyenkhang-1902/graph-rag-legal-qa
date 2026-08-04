@@ -175,9 +175,15 @@ def parse_filename_doc_prefix_and_so_dieu(file_path: Path) -> tuple[str, int]:
     return doc_prefix, filename_so_dieu
 
 
-def _ingest_one_file(client: Neo4jClient, file_path: Path, batch_index: int) -> None:
-    """Doc + parse + upsert MOT file (= MOT Dieu, xem task-2f-brief.md), roi
-    extract + upsert cac trich dan REFERENCES cua Dieu do."""
+def _parse_file(file_path: Path) -> tuple[str, ParsedDocument]:
+    """Doc + parse MOT file (= MOT Dieu, xem task-2f-brief.md) thanh
+    `(text_tho, ParsedDocument)`.
+
+    Ham DUNG CHUNG (T009e) giua `_ingest_one_file` (can ParsedDocument day
+    du de upsert) VA pre-flight collision scan `_detect_and_dedupe_collisions`
+    (can article_id + text tho de gom nhom/so sanh noi dung) - Dieu 1
+    constitution: CHI mot noi tinh doc_id/so_dieu/article_id cho moi file,
+    khong duplicate logic nay giua 2 noi goi (xem task-2g-brief.md)."""
     text = file_path.read_text(encoding="utf-8")
     doc_prefix, filename_so_dieu = parse_filename_doc_prefix_and_so_dieu(file_path)
     # slugify_doc_name (T006/T007, dung chung) thay vi doc_prefix tho - dam
@@ -185,6 +191,13 @@ def _ingest_one_file(client: Neo4jClient, file_path: Path, batch_index: int) -> 
     # reference_extractor.py resolve trich dan qua cung ham nay).
     doc_id = slugify_doc_name(doc_prefix)
     parsed = parse_article_chunk(text, doc_id=doc_id, fallback_so_dieu=filename_so_dieu)
+    return text, parsed
+
+
+def _ingest_one_file(client: Neo4jClient, file_path: Path, batch_index: int) -> None:
+    """Doc + parse + upsert MOT file (= MOT Dieu, xem task-2f-brief.md), roi
+    extract + upsert cac trich dan REFERENCES cua Dieu do."""
+    _text, parsed = _parse_file(file_path)
 
     batch_id = f"batch-{batch_index:04d}"
     upsert_document(client, parsed, batch_id=batch_id)
@@ -194,6 +207,97 @@ def _ingest_one_file(client: Neo4jClient, file_path: Path, batch_index: int) -> 
             article.full_text, current_doc_slug=parsed.doc_id
         )
         upsert_references(client, article.article_id, references)
+
+
+class ArticleIdCollisionError(RuntimeError):
+    """Raise khi 2+ file trong `data_dir` tinh ra CUNG article_id nhung noi
+    dung THUC SU khac nhau (research.md ADR-003).
+
+    Boi canh: corpus that (Zalo AI Challenge) chua cac ban ghi trung lap do
+    2 cach viet ten file khac nhau chi lech 1 diem chuan hoa Unicode (vd
+    dau tieng Viet bi/khong bi `slugify_doc_name` strip) - 2 filename khac
+    nhau vo tinh tinh ra CUNG article_id. Neu noi dung 2 file GIONG HET
+    nhau, day la ban sao that cua corpus nguon - an toan tu dong dedup (giu
+    1 ban, xem `_detect_and_dedupe_collisions`). Nhung neu noi dung KHAC
+    nhau, upsert.py (MERGE-based) se AM THAM ghi de ban truoc bang ban sau
+    ma khong co canh bao nao - mat that 1 Dieu luat, vi pham truc tiep
+    Dieu 1/Dieu 7 constitution ("khong duoc am tham lam sai khi gap mo
+    ho" - du lieu domain phap luat, sai lang le co hau qua that).
+
+    Theo ADR-003 (Option C): KHONG tu dong doan chon ban nao dung - day la
+    quyet dinh CHI con nguoi moi lam duoc (xem lich su file, doi chieu
+    nguon goc). Ham nay chi phat hien va TU CHOI chay tiep (crash lon
+    tieng), giong nguyen tac da dung cho `BatchSizeMismatchError` o tren."""
+
+
+def _detect_and_dedupe_collisions(files: list[Path]) -> list[Path]:
+    """Pre-flight scan (T009e, ADR-003): tinh article_id cho MOI file trong
+    `files` (qua `_parse_file` - tai dung dung logic da co, khong duplicate),
+    gom nhom theo article_id trung nhau, roi xu ly tung nhom >= 2 file:
+
+    - Noi dung (text tho, TOAN BO file - khong chi dong tieu de) giong het
+      nhau giua TAT CA file trong nhom -> day la ban sao that cua corpus
+      nguon, an toan: chi giu file DAU TIEN theo thu tu `files` (cung thu tu
+      sort on dinh ma phan con lai cua pipeline da dua vao), log INFO liet
+      ke cac file bi bo qua. KHONG phai loi.
+    - Bat ky 2 file nao trong nhom co noi dung KHAC nhau -> nguy hiem that
+      (xem ArticleIdCollisionError) - raise NGAY, liet ke article_id VA
+      TOAN BO ten file xung dot trong nhom, KHONG tiep tuc quet/ingest gi
+      them (dung ca vong lap batch truoc khi bat dau, dung nguyen tac da
+      dung cho BatchSizeMismatchError).
+
+    Tra ve danh sach file da dedup (thu tu nhu `files` goc, tru cac file bi
+    bo qua vi trung noi dung) - day la danh sach THUC SU duoc dua vao batch
+    loop/ingest, file bi drop khong bao gio duoc doc/parse/upsert lai lan
+    nua trong `_ingest_one_file`."""
+    article_id_to_files: dict[str, list[Path]] = {}
+    file_contents: dict[Path, str] = {}
+
+    for file_path in files:
+        text, parsed = _parse_file(file_path)
+        file_contents[file_path] = text
+        article_id = parsed.articles[0].article_id
+        article_id_to_files.setdefault(article_id, []).append(file_path)
+
+    dropped: set[Path] = set()
+    for article_id, group_files in article_id_to_files.items():
+        if len(group_files) < 2:
+            continue
+
+        first_file = group_files[0]
+        first_text = file_contents[first_file]
+        conflicting = [
+            f for f in group_files[1:] if file_contents[f] != first_text
+        ]
+
+        if conflicting:
+            all_filenames = ", ".join(str(f) for f in group_files)
+            message = (
+                f"article_id trung nhau giua nhieu file NHUNG NOI DUNG KHAC "
+                f"NHAU (khong an toan tu dong dedup) - article_id={article_id!r}, "
+                f"cac file xung dot: {all_filenames}. Day la truong hop mo ho "
+                "nguy hiem (research.md ADR-003) - KHONG tu dong doan chon "
+                "ban nao dung, dung toan bo ingest truoc khi batch loop bat "
+                "dau. Hay kiem tra thu cong noi dung cac file tren (thuong "
+                "la 1 ban loi crawl/OCR, hoac 2 van ban khac nhau vo tinh "
+                "trung article_id) roi chay lai."
+            )
+            logger.error(message)
+            raise ArticleIdCollisionError(message)
+
+        duplicates = group_files[1:]
+        dropped.update(duplicates)
+        logger.info(
+            "phat hien %d file cung article_id=%s, noi dung giong het nhau "
+            "(ban sao that cua corpus nguon, xem ADR-003) - giu file dau "
+            "tien %s, bo qua (khong ingest): %s",
+            len(group_files),
+            article_id,
+            first_file.name,
+            ", ".join(f.name for f in duplicates),
+        )
+
+    return [f for f in files if f not in dropped]
 
 
 def run_ingest(
@@ -238,6 +342,11 @@ def run_ingest(
         client.ensure_constraints_and_indexes()
 
         files = discover_documents(data_dir, limit=limit)
+        # T009e/ADR-003: quet trung article_id TRUOC khi doc checkpoint/bat
+        # dau batch loop - dam bao neu phat hien xung dot noi dung khac nhau
+        # thi KHONG file nao (kho khong chi phan con lai) duoc ingest duoi
+        # gia dinh sai (xem ArticleIdCollisionError).
+        files = _detect_and_dedupe_collisions(files)
         batches = make_batches(files, effective_batch_size)
         total_batches = len(batches)
 
