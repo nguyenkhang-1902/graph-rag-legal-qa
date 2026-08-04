@@ -18,6 +18,7 @@ from app.extraction.structure_parser import Article, Chapter, ParsedDocument
 from app.ingest import (
     ArticleIdCollisionError,
     _all_articles,
+    _detect_and_dedupe_collisions,
     discover_documents,
     make_batches,
     parse_filename_doc_prefix_and_so_dieu,
@@ -263,6 +264,39 @@ def test_run_ingest_identical_duplicate_article_id_dedupes_to_one_upsert(tmp_pat
     assert articles_seen == [
         {"article_id": f"{expected_doc_id}_dieu-1", "so_dieu": 1}
     ]
+
+
+def test_detect_and_dedupe_collisions_keeps_first_file_in_sort_order(tmp_path):
+    """Bo sung coverage sau review finding (task-2g): test dedup phia tren
+    (`test_run_ingest_identical_duplicate_article_id_dedupes_to_one_upsert`)
+    chi chung minh "dung 1 upsert xay ra" - vi 2 file trung NOI DUNG hoan
+    toan (bat buoc de dedup kich hoat), khong co cach nao phan biet file NAO
+    trong 2 file duoc giu qua noi dung article. Test nay goi thang
+    `_detect_and_dedupe_collisions` va kiem tra GIA TRI TRA VE (danh sach
+    file da dedup) de xac nhan chinh xac file DAU TIEN theo thu tu sort
+    (`discover_documents`, code point 'd' < 'đ') duoc giu lai - neu logic
+    dedup vo tinh doi sang set()/dict khong dam bao thu tu thay vi dua vao
+    danh sach `files` da sort, test nay se FAIL (co the giu nham file "co
+    dau" thay vi "khong dau")."""
+    data_dir = tmp_path / "corpus"
+    _write_article_chunk_file(
+        data_dir, "03_2021_tt-bgddt_1.md", 1, "Pham vi", "Noi dung giong het nhau."
+    )
+    _write_article_chunk_file(
+        data_dir, "03_2021_tt-bgdđt_1.md", 1, "Pham vi", "Noi dung giong het nhau."
+    )
+
+    files = discover_documents(data_dir)
+    # Xac nhan gia dinh thu tu sort ma test nay dua vao (khong dau "đ" xep
+    # TRUOC co dau "đ") - day chinh la file du kien duoc GIU LAI sau dedup.
+    assert [f.name for f in files] == [
+        "03_2021_tt-bgddt_1.md",
+        "03_2021_tt-bgdđt_1.md",
+    ]
+
+    deduped = _detect_and_dedupe_collisions(files)
+
+    assert [f.name for f in deduped] == ["03_2021_tt-bgddt_1.md"]
 
 
 def test_run_ingest_conflicting_duplicate_article_id_raises_before_any_neo4j_call(
