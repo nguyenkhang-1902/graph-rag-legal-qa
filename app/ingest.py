@@ -175,15 +175,19 @@ def parse_filename_doc_prefix_and_so_dieu(file_path: Path) -> tuple[str, int]:
     return doc_prefix, filename_so_dieu
 
 
-def _parse_file(file_path: Path) -> tuple[str, ParsedDocument]:
+def parse_file(file_path: Path) -> tuple[str, ParsedDocument]:
     """Doc + parse MOT file (= MOT Dieu, xem task-2f-brief.md) thanh
     `(text_tho, ParsedDocument)`.
 
     Ham DUNG CHUNG (T009e) giua `_ingest_one_file` (can ParsedDocument day
-    du de upsert) VA pre-flight collision scan `_detect_and_dedupe_collisions`
+    du de upsert) VA pre-flight collision scan `detect_and_dedupe_collisions`
     (can article_id + text tho de gom nhom/so sanh noi dung) - Dieu 1
     constitution: CHI mot noi tinh doc_id/so_dieu/article_id cho moi file,
-    khong duplicate logic nay giua 2 noi goi (xem task-2g-brief.md)."""
+    khong duplicate logic nay giua 2 noi goi (xem task-2g-brief.md).
+
+    De-underscore hoa o T009f de `scripts/backfill_embeddings.py` co the tai
+    dung ham nay thay vi duplicate logic parse file (xem task-3a-brief.md) -
+    hanh vi khong doi, chi doi kha nang import tu ben ngoai module nay."""
     text = file_path.read_text(encoding="utf-8")
     doc_prefix, filename_so_dieu = parse_filename_doc_prefix_and_so_dieu(file_path)
     # slugify_doc_name (T006/T007, dung chung) thay vi doc_prefix tho - dam
@@ -197,7 +201,7 @@ def _parse_file(file_path: Path) -> tuple[str, ParsedDocument]:
 def _ingest_one_file(client: Neo4jClient, file_path: Path, batch_index: int) -> None:
     """Doc + parse + upsert MOT file (= MOT Dieu, xem task-2f-brief.md), roi
     extract + upsert cac trich dan REFERENCES cua Dieu do."""
-    _text, parsed = _parse_file(file_path)
+    _text, parsed = parse_file(file_path)
 
     batch_id = f"batch-{batch_index:04d}"
     upsert_document(client, parsed, batch_id=batch_id)
@@ -218,7 +222,7 @@ class ArticleIdCollisionError(RuntimeError):
     dau tieng Viet bi/khong bi `slugify_doc_name` strip) - 2 filename khac
     nhau vo tinh tinh ra CUNG article_id. Neu noi dung 2 file GIONG HET
     nhau, day la ban sao that cua corpus nguon - an toan tu dong dedup (giu
-    1 ban, xem `_detect_and_dedupe_collisions`). Nhung neu noi dung KHAC
+    1 ban, xem `detect_and_dedupe_collisions`). Nhung neu noi dung KHAC
     nhau, upsert.py (MERGE-based) se AM THAM ghi de ban truoc bang ban sau
     ma khong co canh bao nao - mat that 1 Dieu luat, vi pham truc tiep
     Dieu 1/Dieu 7 constitution ("khong duoc am tham lam sai khi gap mo
@@ -230,9 +234,9 @@ class ArticleIdCollisionError(RuntimeError):
     tieng), giong nguyen tac da dung cho `BatchSizeMismatchError` o tren."""
 
 
-def _detect_and_dedupe_collisions(files: list[Path]) -> list[Path]:
+def detect_and_dedupe_collisions(files: list[Path]) -> list[Path]:
     """Pre-flight scan (T009e, ADR-003): tinh article_id cho MOI file trong
-    `files` (qua `_parse_file` - tai dung dung logic da co, khong duplicate),
+    `files` (qua `parse_file` - tai dung dung logic da co, khong duplicate),
     gom nhom theo article_id trung nhau, roi xu ly tung nhom >= 2 file:
 
     - Noi dung (text tho, TOAN BO file - khong chi dong tieu de) giong het
@@ -254,7 +258,7 @@ def _detect_and_dedupe_collisions(files: list[Path]) -> list[Path]:
     file_contents: dict[Path, str] = {}
 
     for file_path in files:
-        text, parsed = _parse_file(file_path)
+        text, parsed = parse_file(file_path)
         file_contents[file_path] = text
         article_id = parsed.articles[0].article_id
         article_id_to_files.setdefault(article_id, []).append(file_path)
@@ -346,7 +350,7 @@ def run_ingest(
         # dau batch loop - dam bao neu phat hien xung dot noi dung khac nhau
         # thi KHONG file nao (kho khong chi phan con lai) duoc ingest duoi
         # gia dinh sai (xem ArticleIdCollisionError).
-        files = _detect_and_dedupe_collisions(files)
+        files = detect_and_dedupe_collisions(files)
         batches = make_batches(files, effective_batch_size)
         total_batches = len(batches)
 

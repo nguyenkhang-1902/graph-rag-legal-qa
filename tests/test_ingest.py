@@ -18,7 +18,7 @@ from app.extraction.structure_parser import Article, Chapter, ParsedDocument
 from app.ingest import (
     ArticleIdCollisionError,
     _all_articles,
-    _detect_and_dedupe_collisions,
+    detect_and_dedupe_collisions,
     discover_documents,
     make_batches,
     parse_filename_doc_prefix_and_so_dieu,
@@ -294,7 +294,7 @@ def test_detect_and_dedupe_collisions_keeps_first_file_in_sort_order(tmp_path):
         "03_2021_tt-bgdđt_1.md",
     ]
 
-    deduped = _detect_and_dedupe_collisions(files)
+    deduped = detect_and_dedupe_collisions(files)
 
     assert [f.name for f in deduped] == ["03_2021_tt-bgddt_1.md"]
 

@@ -21,6 +21,9 @@ CONFIG_ENV_VARS = [
     "OLLAMA_BASE_URL",
     "OLLAMA_MODEL",
     "CHROMA_PERSIST_DIR",
+    "CHROMA_COLLECTION_NAME",
+    "EMBEDDING_MODEL",
+    "EMBED_BATCH_SIZE",
 ]
 
 
@@ -50,6 +53,11 @@ def test_defaults_load_correctly(monkeypatch):
     assert cfg.OLLAMA_MODEL == "qwen2.5:7b-instruct"
 
     assert cfg.CHROMA_PERSIST_DIR == "./chroma_db"
+    assert cfg.CHROMA_COLLECTION_NAME == "legal_articles"
+
+    assert cfg.EMBEDDING_MODEL == "BAAI/bge-m3"
+    assert cfg.EMBED_BATCH_SIZE == 32
+    assert isinstance(cfg.EMBED_BATCH_SIZE, int)
 
 
 def test_max_hop_env_override_read_as_int(monkeypatch):
@@ -95,6 +103,19 @@ def test_neo4j_and_ollama_env_overrides_read_as_str(monkeypatch):
     assert cfg.OLLAMA_BASE_URL == "http://ollama-host:11434"
     assert cfg.OLLAMA_MODEL == "llama3:8b"
     assert cfg.CHROMA_PERSIST_DIR == "/data/chroma"
+
+
+def test_embedding_env_overrides_read_as_str_and_int(monkeypatch):
+    _reload_with_clean_env(monkeypatch)
+    monkeypatch.setenv("CHROMA_COLLECTION_NAME", "custom_collection")
+    monkeypatch.setenv("EMBEDDING_MODEL", "some/other-model")
+    monkeypatch.setenv("EMBED_BATCH_SIZE", "64")
+    cfg = importlib.reload(config_module)
+
+    assert cfg.CHROMA_COLLECTION_NAME == "custom_collection"
+    assert cfg.EMBEDDING_MODEL == "some/other-model"
+    assert cfg.EMBED_BATCH_SIZE == 64
+    assert isinstance(cfg.EMBED_BATCH_SIZE, int)
 
 
 def teardown_module(module):

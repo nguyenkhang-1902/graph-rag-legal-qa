@@ -35,3 +35,12 @@ OLLAMA_MODEL: str = os.getenv("OLLAMA_MODEL", "qwen2.5:7b-instruct")
 
 # --- Chroma (vector store, chỉ dùng tìm entry-point — data-model.md) ---
 CHROMA_PERSIST_DIR: str = os.getenv("CHROMA_PERSIST_DIR", "./chroma_db")
+CHROMA_COLLECTION_NAME: str = os.getenv("CHROMA_COLLECTION_NAME", "legal_articles")
+
+# --- Embedding (T009f — app/retrieval/embedder.py + scripts/backfill_embeddings.py,
+# research.md sổ bẫy 12e: model reload crash trên Windows nếu không cache) ---
+EMBEDDING_MODEL: str = os.getenv("EMBEDDING_MODEL", "BAAI/bge-m3")
+# Batch size cho embedding inference (T009f) — KHÁC với INGEST_BATCH_SIZE
+# (batch số file ingest vào Neo4j/checkpoint): đây là batch số text đưa vào
+# 1 lần gọi model, throughput characteristics khác nhau, không gộp chung.
+EMBED_BATCH_SIZE: int = int(os.getenv("EMBED_BATCH_SIZE", "32"))
