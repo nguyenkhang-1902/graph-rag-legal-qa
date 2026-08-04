@@ -31,8 +31,9 @@ from app.graph_store.neo4j_client import Neo4jClient
 
 _TRAVERSAL_QUERY = (
     "UNWIND $frontier_ids AS from_id\n"
-    "MATCH (a:Article {article_id: from_id})-[r:REFERENCES|DEFINES]->(b:Article)\n"
-    "RETURN from_id AS from_id, type(r) AS rel_type, b.article_id AS to_id, "
+    "MATCH (a:Article {article_id: from_id})-[r:REFERENCES|DEFINES]->(b)\n"
+    "RETURN from_id AS from_id, type(r) AS rel_type, "
+    "b.article_id AS to_article_id, b.term_id AS to_term_id, "
     "b.is_external AS is_external"
 )
 
@@ -40,7 +41,14 @@ _TRAVERSAL_QUERY = (
 @dataclass
 class TraversalEdge:
     from_article_id: str
-    to_article_id: str
+    # `to_id` chua article_id (REFERENCES, b la :Article) HOAC term_id
+    # (DEFINES, b la :Term) - khong dat ten `to_article_id` vi Term khong
+    # bao gio co article_id (data-model.md). Caller phan biet Article-vs-
+    # Term qua `relationship_type` ("REFERENCES" -> Article, "DEFINES" ->
+    # Term). Lua chon nay (thay vi 2 field to_article_id/to_term_id rieng,
+    # 1 field luon None) giu TraversalEdge don gian - khong co field nao
+    # "co the None tuy truong hop" ma caller phai kiem tra.
+    to_id: str
     relationship_type: str  # "REFERENCES" hoac "DEFINES"
 
 
@@ -49,6 +57,12 @@ class TraversalResult:
     visited_article_ids: set[str] = field(default_factory=set)
     edges: list[TraversalEdge] = field(default_factory=list)
     external_article_ids: set[str] = field(default_factory=set)
+    # Term node id tu canh DEFINES (Article -> Term). Term la node la trong
+    # traversal nay (khong co canh REFERENCES/DEFINES outgoing cua rieng
+    # no theo data-model.md) nen KHONG duoc dua vao frontier de expand tiep -
+    # chi thu thap id o day. Rong truoc khi T012 (DEFINES ingestion) ton tai,
+    # do la hanh vi dung, khong phai bug.
+    visited_term_ids: set[str] = field(default_factory=set)
 
 
 def traverse(
@@ -82,6 +96,7 @@ def traverse(
     frontier: set[str] = set(entry_article_ids)
     edges: list[TraversalEdge] = []
     external_article_ids: set[str] = set()
+    visited_term_ids: set[str] = set()
 
     for _hop in range(max_hop):
         if not frontier:
@@ -92,13 +107,27 @@ def traverse(
         next_frontier: set[str] = set()
         for row in rows:
             from_id = row["from_id"]
-            to_id = row["to_id"]
             rel_type = row["rel_type"]
 
+            if rel_type == "DEFINES":
+                # b la :Term - node la, khong co canh outgoing cua rieng
+                # no nen KHONG dua vao next_frontier de expand tiep.
+                to_id = row["to_term_id"]
+                edges.append(
+                    TraversalEdge(
+                        from_article_id=from_id,
+                        to_id=to_id,
+                        relationship_type=rel_type,
+                    )
+                )
+                visited_term_ids.add(to_id)
+                continue
+
+            to_id = row["to_article_id"]
             edges.append(
                 TraversalEdge(
                     from_article_id=from_id,
-                    to_article_id=to_id,
+                    to_id=to_id,
                     relationship_type=rel_type,
                 )
             )
@@ -115,4 +144,5 @@ def traverse(
         visited_article_ids=visited,
         edges=edges,
         external_article_ids=external_article_ids,
+        visited_term_ids=visited_term_ids,
     )

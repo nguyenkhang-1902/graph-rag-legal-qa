@@ -31,12 +31,23 @@ def _make_mock_client():
 
 
 def _row(from_id: str, to_id: str, rel_type: str = "REFERENCES", is_external: bool = False) -> dict:
-    return {
+    """Mo phong 1 dong tra ve tu `_TRAVERSAL_QUERY`. `to_id` duoc dat vao
+    `to_article_id` (REFERENCES, b la :Article) hoac `to_term_id` (DEFINES,
+    b la :Term) tuong ung - dung y nghia cot Cypher that su tra ve, khong
+    phai mot cot `to_id` chung chung nhu truoc khi fix bug (b:Article) ep
+    ca hai loai canh vao cung mot label."""
+    row = {
         "from_id": from_id,
-        "to_id": to_id,
         "rel_type": rel_type,
+        "to_article_id": None,
+        "to_term_id": None,
         "is_external": is_external,
     }
+    if rel_type == "DEFINES":
+        row["to_term_id"] = to_id
+    else:
+        row["to_article_id"] = to_id
+    return row
 
 
 # --- Case 1: chuoi 2-hop, khong vong lap -----------------------------------
@@ -167,6 +178,38 @@ def test_query_is_batched_once_per_hop_not_once_per_frontier_node():
     assert set(call.kwargs["frontier_ids"]) == {"A", "B", "C"}
     assert result.visited_article_ids == {"A", "B", "C", "P", "Q", "R"}
     assert len(result.edges) == 3
+
+
+# --- Case 8: canh DEFINES (Article -> Term) khong bi ep ve :Article --------
+
+
+def test_defines_edge_goes_to_visited_term_ids_not_frontier():
+    """Article A --DEFINES--> Term T1, dong thoi A --REFERENCES--> B.
+
+    T1 phai vao `visited_term_ids` (khong phai `visited_article_ids`), canh
+    duoc ghi lai trong `edges`, va T1 KHONG duoc dua vao frontier hop ke
+    tiep - chi B (tu canh REFERENCES) duoc UNWIND o hop 2. Day la regression
+    test cho bug: query cu ep target vao (b:Article) nen DEFINES khong bao
+    gio tra ve duoc, ke ca sau khi T012 populate DEFINES that su.
+    """
+    client = _make_mock_client()
+    client.run.side_effect = [
+        [_row("A", "T1", rel_type="DEFINES"), _row("A", "B")],
+        [],  # hop 2: chi B duoc tham, T1 khong xuat hien trong frontier
+    ]
+
+    result = traverse(client, ["A"], max_hop=2)
+
+    assert result.visited_term_ids == {"T1"}
+    assert "T1" not in result.visited_article_ids
+    assert TraversalEdge("A", "T1", "DEFINES") in result.edges
+    assert TraversalEdge("A", "B", "REFERENCES") in result.edges
+    assert len(result.edges) == 2
+
+    assert client.run.call_count == 2
+    second_call_kwargs = client.run.call_args_list[1].kwargs
+    assert set(second_call_kwargs["frontier_ids"]) == {"B"}
+    assert "T1" not in second_call_kwargs["frontier_ids"]
 
 
 # --- Default max_hop reads from config.MAX_HOP ------------------------------
