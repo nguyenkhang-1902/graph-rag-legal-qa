@@ -20,8 +20,11 @@
 - **T009b** 🆕 `ingest_checkpoint/state_store.py` — ghi savepoint sau mỗi batch hoàn tất (batch cuối `batch_id` + timestamp), API `get_last_completed_batch()` / `mark_batch_done()`
 - **T009c** 🆕 Test resume: `tests/ingest_checkpoint/test_resume_after_crash.py` — mô phỏng kill giữa batch 3, xác nhận `get_last_completed_batch()` trả về batch 2, batch 3 chạy lại không tạo node trùng (User Story 4, AS-1/AS-2)
 - **T009d** 🆕 `app/ingest.py` — vòng lặp batch, gọi `mark_batch_done()` sau mỗi batch, đọc `get_last_completed_batch()` khi khởi động để resume
+- **T009e** 🆕 (phát hiện lúc chạy checkpoint dữ liệu thật, xem `research.md` ADR-003) `app/ingest.py` — bước pre-flight quét `data_dir` trước batch loop, gom file theo `article_id` trùng: nội dung giống hệt → tự dedup + log INFO; nội dung khác nhau → raise lỗi rõ ràng liệt kê file xung đột, dừng ingest (không đoán, không ghi đè âm thầm)
 
 **Checkpoint**: chạy `app/ingest.py` trên 100 văn bản mẫu (2-3 batch), `kill -9` giữa batch, chạy lại → xác nhận resume đúng (SC-005) trước khi mở rộng ra 67k thật.
+
+**✅ Checkpoint dữ liệu thật đã chạy (2026-08-04)**: fetch 447 mẫu → phát hiện corpus thật là per-Article chunk (không phải Document→Chương→Điều đầy đủ như giả định ban đầu) → sửa bằng `parse_article_chunk()`. Ingest full 61,068 văn bản thật thành công: 60,679 Article/3,203 Document/165,699 Clause/37,875 REFERENCES. Kill -9 thật giữa batch → resume đúng, 0 trùng lặp. Phát hiện 389 file trùng `article_id` do corpus nguồn không nhất quán encoding — đã audit an toàn (100% nội dung giống hệt), T009e xử lý cho các lần ingest sau.
 
 ## 🔍 Phase 3: User Story 1 — Trả lời câu hỏi multi-hop (P1) 🎯 MVP
 

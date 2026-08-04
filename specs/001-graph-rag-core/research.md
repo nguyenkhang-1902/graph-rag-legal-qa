@@ -115,6 +115,57 @@ Chọn **Option A (file JSON)** cho P1: project chạy single-process, không c�
 
 ---
 
+## 🗒️ ADR-003: Xử lý ID trùng do dữ liệu nguồn không nhất quán (near-duplicate filenames)
+
+**Status:** Accepted
+**Date:** 2026-08-04
+**Deciders:** Khang
+
+### Context
+
+Sau khi ingest thật toàn bộ 61,068 văn bản (checkpoint dữ liệu thật, xem `TIEN_DO.md`), số Article thật trong Neo4j là 60,679 — thiếu 389 so với số file. Điều tra trực tiếp (đọc + so sánh nội dung tất cả 389 cặp trùng) cho thấy nguyên nhân: **chính corpus gốc (Zalo AI Challenge/HuggingFace) chứa các bản ghi trùng lặp thật**, cùng một văn bản xuất hiện 2 lần dưới 2 cách viết filename khác nhau chỉ khác đúng 1 điểm bất nhất Unicode — ví dụ `03_2021_tt-bgddt_1.md` (không dấu) và `03_2021_tt-bgdđt_1.md` (có dấu `đ`). `slugify_doc_name()` (chuẩn hóa bỏ dấu cho `doc_id`) vô tình gộp 2 filename này thành cùng 1 `article_id`, và `upsert.py` (MERGE-based) âm thầm ghi đè bản sau lên bản trước.
+
+Đã xác minh: **cả 389/389 cặp trùng có nội dung giống hệt byte-by-byte** (`noi_dung`/`full_text` giống hoàn toàn) — lần này an toàn, không mất thông tin thật. Nhưng đây là **may mắn của lần này, không phải đảm bảo cho tương lai**. Đây là lớp lỗi rất phổ biến khi làm việc với dữ liệu crawl/scrape thật (encoding không nhất quán, ID gần giống nhau do chuẩn hóa khác nhau giữa các lần thu thập) — **sẽ còn gặp lại** nếu mở rộng nguồn dữ liệu hoặc ingest tăng dần (User Story 3) từ nguồn khác. Nếu 2 file trùng `article_id` mà nội dung THỰC SỰ khác nhau (vd 2 văn bản pháp luật khác nhau vô tình cùng slug, hoặc corpus cập nhật 1 bản mà giữ bản cũ), việc âm thầm ghi đè sẽ **mất thật 1 Article** mà không có cảnh báo nào — vi phạm trực tiếp Điều 1/Điều 7 constitution (không được âm thầm làm sai khi gặp mơ hồ).
+
+### Decision
+
+Thêm bước **pre-flight collision detection** trong `app/ingest.py`, chạy trước khi bắt đầu batch loop (một lần, quét toàn bộ `data_dir`):
+
+1. Tính `article_id` cho mọi file (tái dùng đúng logic tính `doc_id`/`so_dieu` đã có — không viết lại).
+2. Gom các file có cùng `article_id`. Với mỗi nhóm ≥2 file:
+   - **Nội dung giống hệt nhau** (so sánh full text) → coi là bản sao thật của corpus nguồn, tự động chỉ giữ 1 bản (file đầu tiên theo thứ tự sort), log **INFO** liệt kê các file bị bỏ qua (không phải lỗi, nhưng cần thấy được để audit).
+   - **Nội dung KHÁC nhau** → đây là trường hợp nguy hiểm thật — **dừng ngay, raise lỗi rõ ràng** liệt kê đúng các file xung đột và `article_id` chung, **không tự đoán chọn bản nào** (đúng nguyên tắc "gặp mơ hồ → hỏi Khang, không đoán" của constitution). Khang xem xét thủ công (thường là 1 trong 2 file bị lỗi crawl/OCR, hoặc đúng là 2 văn bản khác nhau cần sửa cách tính `doc_id` để tách ra) rồi mới chạy lại.
+
+### Options Considered
+
+**Option A: Bỏ qua, chấp nhận rủi ro (giữ nguyên MERGE âm thầm ghi đè như hiện tại)**
+Đơn giản nhất nhưng vi phạm trực tiếp nguyên tắc "không âm thầm làm sai" — loại ngay, không phù hợp cho dữ liệu domain pháp luật (sai thông tin pháp luật có hậu quả thật).
+
+**Option B: Disambiguate — đổi `article_id` để giữ cả 2 bản (vd thêm hậu tố `_dup2`)**
+Không mất dữ liệu nhưng phá vỡ giả định "1 `article_id` = 1 Điều luật thật duy nhất" mà `reference_extractor.py` và toàn bộ retrieval dựa vào — REFERENCES trỏ tới bản nào trong 2 bản trùng sẽ tùy tiện, gây nhiễu graph. Loại.
+
+**Option C (đã chọn): Pre-flight detect — tự dedup khi an toàn (nội dung giống), dừng + báo khi nguy hiểm (nội dung khác)**
+Tận dụng đúng: nếu giống hệt thì dedup an toàn không cần hỏi; chỉ hỏi khi thực sự mơ hồ (nội dung khác nhau) — đúng tinh thần Điều 1 (đơn giản, không xử lý phức tạp hơn mức cần) và nguyên tắc "gặp mơ hồ → hỏi Khang" của constitution.
+
+### Trade-off Analysis
+
+Option C thêm 1 bước quét toàn bộ file trước khi ingest (chi phí: đọc từng file 1 lần, ước tính vài chục giây trên 61k file dựa trên benchmark thực tế lúc điều tra — chấp nhận được so với tổng thời gian ingest nhiều giờ). Đổi lại: loại hoàn toàn rủi ro mất dữ liệu âm thầm do trùng ID nội dung khác nhau — đúng nguyên tắc dữ liệu domain pháp luật không được sai lặng lẽ.
+
+### Consequences
+
+- `app/ingest.py` cần 1 bước quét trước batch loop — không ảnh hưởng logic batch/savepoint hiện có (T009b-d), vì bước này chạy độc lập trước khi checkpoint được đọc.
+- Danh sách file "đã dedup" (bị bỏ qua vì trùng nội dung) nên log rõ để Khang có thể audit lại nếu nghi ngờ.
+- Nếu raise lỗi (nội dung khác nhau thật), ingest dừng hoàn toàn — không có "bỏ qua và tiếp tục" ở bước này, khác với lỗi 1 file đơn lẻ (Điều 1 — thà dừng sớm còn hơn ingest sai một phần lớn rồi phải dọn dẹp graph sau).
+- 389 file trùng đã phát hiện trong lần ingest 61k đầu tiên (2026-08-04) đều **an toàn (giống hệt nội dung)** — không cần sửa dữ liệu đã ingest, việc này áp dụng cho các lần ingest sau/ingest tăng dần.
+
+### Action Items
+
+1. [ ] Thêm bước pre-flight collision detection vào `app/ingest.py`, tái dùng logic tính `article_id` hiện có, không tạo bản sao logic thứ 2.
+2. [ ] Test: 2 file cùng `article_id`, nội dung giống hệt → dedup, không raise, không lặp. 2 file cùng `article_id`, nội dung khác → raise lỗi rõ ràng, liệt kê đúng file.
+3. [x] Ghi lại phát hiện 389 cặp trùng (2026-08-04, ingest 61k đầu tiên) — đã audit, an toàn, không cần sửa dữ liệu.
+
+---
+
 ## 🪤 Sổ bẫy (pitfall log) — kế thừa từ `rag-chatbot-document-QA`
 
 Các bài học từ project Hybrid RAG trước áp dụng được cho project này:
@@ -123,6 +174,10 @@ Các bài học từ project Hybrid RAG trước áp dụng được cho project
 - **12b. Reranker/LLM 14B không đáng — chậm hơn 2.9-4.2 lần mà chất lượng không tăng rõ** — áp dụng tương tự cho LLM extraction quan hệ: bắt đầu với model nhỏ (Qwen2.5:7b), chỉ nâng cấp nếu đo được sai số extraction cao và có số liệu chứng minh.
 - **12c. Confidence-gated reranker đã thử và bị bác bỏ (chậm hơn 4.2 lần, recall không đổi)** — cảnh báo tương tự cho việc thêm "confidence gate" vào graph traversal (vd chỉ traverse khi entry-point confidence thấp) — PHẢI đo trước khi thêm, không mặc định là tối ưu.
 - **12d. `host.docker.internal` cần `extra_hosts` trên Linux** — áp dụng lại cấu hình này trong `docker-compose.yml` nếu Ollama chạy trên host, container Neo4j/FastAPI cần gọi ra ngoài.
+
+## 🪤 Sổ bẫy mới phát hiện trong project này
+
+- **13a. Dữ liệu crawl/scrape thật luôn có khả năng chứa bản ghi gần-trùng do encoding/chuẩn hóa không nhất quán** (vd tên file lệch nhau đúng 1 ký tự dấu tiếng Việt, ID sinh ra từ 2 lần thu thập khác thời điểm) — khi hệ thống có bước chuẩn hóa ID (slugify, bỏ dấu, lowercase...) để tạo khóa duy nhất, các bản ghi gần-trùng này SẼ va vào nhau. **Không mặc định coi là an toàn hay nguy hiểm** — phải so sánh nội dung thật: giống hệt thì dedup tự động (an toàn), khác nhau thì dừng lại hỏi người, không bao giờ để ghi đè âm thầm (đặc biệt nguy hiểm với domain có hậu quả thật như văn bản pháp luật). Xem ADR-003 (giải pháp) và `TIEN_DO.md` (số liệu điều tra thật: 389/389 cặp trùng phát hiện lúc ingest 61k đều an toàn, nhưng đây là may mắn của lần này, không phải đảm bảo).
 
 ## 📌 Quyết định khác (chưa đủ điều kiện thành ADR riêng)
 
