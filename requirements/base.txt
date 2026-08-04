@@ -10,6 +10,7 @@ sentence-transformers==5.6.1
 # Serving
 fastapi==0.141.1
 uvicorn==0.52.1
+httpx==0.28.1
 
 # Config / env loading
 python-dotenv==1.2.2
