@@ -174,6 +174,7 @@ Các bài học từ project Hybrid RAG trước áp dụng được cho project
 - **12b. Reranker/LLM 14B không đáng — chậm hơn 2.9-4.2 lần mà chất lượng không tăng rõ** — áp dụng tương tự cho LLM extraction quan hệ: bắt đầu với model nhỏ (Qwen2.5:7b), chỉ nâng cấp nếu đo được sai số extraction cao và có số liệu chứng minh.
 - **12c. Confidence-gated reranker đã thử và bị bác bỏ (chậm hơn 4.2 lần, recall không đổi)** — cảnh báo tương tự cho việc thêm "confidence gate" vào graph traversal (vd chỉ traverse khi entry-point confidence thấp) — PHẢI đo trước khi thêm, không mặc định là tối ưu.
 - **12d. `host.docker.internal` cần `extra_hosts` trên Linux** — áp dụng lại cấu hình này trong `docker-compose.yml` nếu Ollama chạy trên host, container Neo4j/FastAPI cần gọi ra ngoài.
+- **12e. BGE-m3 (`sentence-transformers`) tải lại nhiều lần xen kẽ với gọi Ollama trong cùng 1 process từng gây crash native trên Windows** (access violation `0xC0000005`, xác nhận thực nghiệm ở project trước — xem `app/vectorstore.py` comment gốc). Bắt buộc cache 1 instance model duy nhất/process (module-level singleton), không tạo `SentenceTransformer(...)` mới mỗi lần gọi. Áp dụng cho `T009f` (backfill embedding) và mọi chỗ sau này gọi cả embedding lẫn Ollama trong cùng tiến trình (`T010`, `T014`).
 
 ## 🪤 Sổ bẫy mới phát hiện trong project này
 
