@@ -246,6 +246,7 @@ def chat(request: ChatRequest) -> dict:
             "article_id": article_id,
             "is_entry_point": article_id in entry_point_ids,
             "is_external": contexts[article_id].is_external,
+            "is_preview": contexts[article_id].is_preview,
         }
         for article_id in sorted(contexts)
     ]

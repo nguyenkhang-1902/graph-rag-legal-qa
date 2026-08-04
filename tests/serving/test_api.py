@@ -124,8 +124,8 @@ def test_normal_case_all_embedded_builds_context_and_returns_citation_path(
     body = response.json()
     assert body["answer"] == "cau tra loi mo phong"
     assert body["citation_path"] == [
-        {"article_id": "art_1", "is_entry_point": True, "is_external": False},
-        {"article_id": "art_2", "is_entry_point": False, "is_external": False},
+        {"article_id": "art_1", "is_entry_point": True, "is_external": False, "is_preview": False},
+        {"article_id": "art_2", "is_entry_point": False, "is_external": False, "is_preview": False},
     ]
     assert body["edges_used"] == [
         {"from_article_id": "art_1", "to_id": "art_2", "relationship_type": "REFERENCES"}
@@ -184,6 +184,7 @@ def test_external_article_content_not_sent_to_llm_and_marked_in_citation_path(
     body = response.json()
     citation_by_id = {c["article_id"]: c for c in body["citation_path"]}
     assert citation_by_id["art_ext"]["is_external"] is True
+    assert citation_by_id["art_ext"]["is_preview"] is False
     assert citation_by_id["art_1"]["is_external"] is False
 
     # Neo4j duoc goi batched CHI cho id khong co trong texts (art_ext)
@@ -240,6 +241,10 @@ def test_not_yet_embedded_article_falls_back_to_neo4j_preview(monkeypatch, test_
     citation_by_id = {c["article_id"]: c for c in body["citation_path"]}
     # KHONG duoc coi la external - day la noi dung that, chi la chua embed
     assert citation_by_id["art_not_embedded"]["is_external"] is False
+    # nhung PHAI duoc danh dau la preview (rut gon) de nguoi goi biet do la
+    # noi dung it tin cay hon full text - day chinh la finding review vua sua
+    assert citation_by_id["art_not_embedded"]["is_preview"] is True
+    assert citation_by_id["art_1"]["is_preview"] is False
 
     prompt = mock_call_ollama.call_args.args[0]
     assert "Tom tat ngan gon cua Dieu chua embed." in prompt
