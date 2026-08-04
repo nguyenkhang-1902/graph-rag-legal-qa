@@ -20,3 +20,7 @@
 - [ ] D2. Nếu baseline Hybrid+Reranker project trước chưa từng đo ở quy mô 67k (chỉ có số liệu 2k/10k) — cần chạy lại baseline ở 67k trước khi so sánh (SC-002/SC-003), không so lệch quy mô. Xác nhận với Khang khi tới Phase 4.
 
 **Tất cả mục A/B/C đã chốt — sẵn sàng bắt đầu `tasks.md` Phase 1 (T001).**
+
+## 🆕 Điểm phát sinh khi triển khai Phase 3 (2026-08-04, chưa chặn tiến độ)
+- [ ] E1. **32 câu hỏi multi-hop trong `data/eval/multihop_eval_set.json`** (T016) — do Claude soạn trực tiếp từ nội dung thật trong corpus đã ingest (đọc-hiểu thủ công, không dùng LLM/API tự động sinh câu hỏi). Chưa dùng chính thức cho SC-001/Phase 4 cho tới khi Khang xem lại — đặc biệt các `expected_article_ids` có đúng là điều luật cần thiết để trả lời hay không. Không chặn việc tiếp tục code (T012/T013) — chỉ cần duyệt trước khi dùng số liệu này làm tiêu chí nghiệm thu.
+- [ ] E2. Backfill embedding GPU chỉ nhanh hơn CPU ~1.1 lần (không như kỳ vọng 5-8x) — nếu muốn tăng tốc thêm để chạy full 60k nhanh hơn, cần Khang quyết có đáng thử nghiệm `--batch-size` lớn hơn hay chấp nhận tốc độ hiện tại (ước tính still ~13-15 giờ cho phần còn lại ở GPU so với ~25h thuần CPU).
