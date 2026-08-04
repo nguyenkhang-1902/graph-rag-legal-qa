@@ -107,6 +107,28 @@ def get_chroma_collection() -> Collection:
     return _collection_cache["instance"]
 
 
+def get_texts(article_ids: list[str]) -> dict[str, str]:
+    """Tra ve dict `article_id -> full text` cho MOI id THUC SU co trong
+    Chroma collection (`collection.get(ids=article_ids)`'s "documents"
+    field) - id KHONG tim thay trong Chroma se KHONG xuat hien trong dict
+    tra ve (missing key, khong phai gia tri `None`/chuoi rong), de caller
+    (`serving/api.py`, T014) phan biet duoc "chua embed" (thieu key) voi
+    "text rong that su" (key co, gia tri ""). Mot loi goi `collection.get`
+    duy nhat (batched, khong phai mot loi goi cho moi id) - tai su dung
+    `get_chroma_collection()` da cache, khong tao Chroma client moi (giu
+    toan bo truy cap Chroma sau module nay, constitution Dieu 5).
+
+    `article_ids` rong -> tra ve dict rong, khong goi Chroma."""
+    if not article_ids:
+        return {}
+
+    collection = get_chroma_collection()
+    result = collection.get(ids=article_ids)
+    found_ids = result.get("ids") or []
+    documents = result.get("documents") or []
+    return dict(zip(found_ids, documents))
+
+
 def upsert_embeddings(
     ids: list[str], texts: list[str], metadatas: list[dict]
 ) -> None:

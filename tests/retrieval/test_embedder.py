@@ -129,6 +129,48 @@ def test_get_chroma_collection_uses_cosine_hnsw_space(monkeypatch):
     assert kwargs["metadata"] == {"hnsw:space": "cosine"}
 
 
+def test_get_texts_returns_only_present_ids_omitting_missing(monkeypatch):
+    """`collection.get(ids=[...])` (chromadb that) chi tra ve cac id THUC SU
+    ton tai trong collection - "art_2" khong duoc yeu cau ket qua nen
+    KHONG duoc xuat hien trong dict tra ve (missing key, khong phai None)."""
+    mock_collection = MagicMock()
+    mock_collection.get.return_value = {
+        "ids": ["art_1", "art_3"],
+        "documents": ["noi dung dieu 1", "noi dung dieu 3"],
+    }
+    monkeypatch.setattr(embedder, "get_chroma_collection", lambda: mock_collection)
+
+    result = embedder.get_texts(["art_1", "art_2", "art_3"])
+
+    mock_collection.get.assert_called_once_with(ids=["art_1", "art_2", "art_3"])
+    assert result == {"art_1": "noi dung dieu 1", "art_3": "noi dung dieu 3"}
+    assert "art_2" not in result
+
+
+def test_get_texts_keeps_empty_string_document_distinct_from_missing(monkeypatch):
+    """Id co trong Chroma nhung voi document rong ("") van phai xuat hien
+    trong dict voi gia tri "" - phan biet voi id khong ton tai (missing
+    key hoan toan), xem docstring get_texts."""
+    mock_collection = MagicMock()
+    mock_collection.get.return_value = {"ids": ["art_1"], "documents": [""]}
+    monkeypatch.setattr(embedder, "get_chroma_collection", lambda: mock_collection)
+
+    result = embedder.get_texts(["art_1"])
+
+    assert result == {"art_1": ""}
+    assert "art_1" in result
+
+
+def test_get_texts_empty_input_returns_empty_dict_without_calling_chroma(monkeypatch):
+    mock_collection = MagicMock()
+    monkeypatch.setattr(embedder, "get_chroma_collection", lambda: mock_collection)
+
+    result = embedder.get_texts([])
+
+    assert result == {}
+    mock_collection.get.assert_not_called()
+
+
 def test_upsert_embeddings_embeds_then_upserts_matching_batch(monkeypatch):
     mock_collection = MagicMock()
     monkeypatch.setattr(embedder, "get_chroma_collection", lambda: mock_collection)
