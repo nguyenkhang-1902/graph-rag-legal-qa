@@ -28,6 +28,7 @@
 
 ## 🔍 Phase 3: User Story 1 — Trả lời câu hỏi multi-hop (P1) 🎯 MVP
 
+- **T009f** 🆕 (phát hiện khi bắt đầu Phase 3 — gap trong task breakdown gốc: không task nào ghi embedding vào Chroma trước T010) `scripts/backfill_embeddings.py` — đọc lại full text từ `data/raw/*.md` (tái dùng `discover_documents`/dedup logic từ `app/ingest.py`, KHÔNG viết lại), embed bằng BGE-m3 (tái dùng pattern `vectorstore.py` project trước), ghi vào Chroma (id = `article_id`), UPDATE `chroma_id` trên Article tương ứng trong Neo4j. Resumable tự nhiên: bỏ qua file có `chroma_id` đã set (không cần state_store riêng).
 - **T010** [Story:US1] `retrieval/entry_point.py` — vector search Chroma → `article_id`
 - **T011** [Story:US1] `retrieval/traversal.py` — Cypher traversal N-hop (mặc định 2, xem `[CẦN DUYỆT]` FR-005), chống lặp vô hạn (edge case trong `spec.md`)
 - **T012** [Story:US1] [P] `extraction/term_extractor.py` — DEFINES/USES_TERM, rule-based trước LLM fallback
