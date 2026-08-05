@@ -18,7 +18,11 @@ from pathlib import Path
 from unittest.mock import MagicMock, call
 
 from app.extraction.slugify import slugify_doc_name
-from scripts.backfill_embeddings import run_backfill
+from scripts.backfill_embeddings import (
+    _batch_cap_for_length,
+    _group_into_length_aware_batches,
+    run_backfill,
+)
 
 
 def _write_article_chunk_file(
@@ -172,6 +176,116 @@ def test_run_backfill_reuses_dedup_so_duplicate_content_file_not_embedded_twice(
     mock_upsert.assert_called_once()
     _, kwargs = mock_upsert.call_args
     assert len(kwargs["ids"]) == 1
+
+
+def test_pending_articles_are_batched_sorted_by_text_length(tmp_path, monkeypatch):
+    """Chan doan that (2026-08-04): corpus that co do dai Dieu lech rat manh
+    (trung vi 298 token nhung co Dieu toi 4737 token). Neu KHONG sap xep,
+    mot Dieu dai vo tinh loi vao batch se buoc CA batch pad theo do dai do
+    (batch=64 tren mau that CHAM HON 7.7 lan/item so voi batch=32 - xem
+    TIEN_DO.md). Sap xep `pending` theo do dai text TRUOC khi chia batch -
+    nhom cac Dieu dai tuong duong vao cung batch - la fix truc tiep cho gap
+    nay. Test nay dung 4 file do dai CACH BIET RO RANG (ngan/ngan/dai/dai)
+    de xac nhan batch KHONG con theo thu tu discover (bang chu cai) nua ma
+    theo do dai."""
+    data_dir = tmp_path / "corpus"
+    _write_article_chunk_file(data_dir, "01_2020_tt-btp_1.md", 1, "A", "x" * 10)
+    _write_article_chunk_file(data_dir, "01_2020_tt-btp_2.md", 2, "B", "y" * 5000)
+    _write_article_chunk_file(data_dir, "01_2020_tt-btp_3.md", 3, "C", "z" * 20)
+    _write_article_chunk_file(data_dir, "01_2020_tt-btp_4.md", 4, "D", "w" * 6000)
+
+    mock_client = _make_mock_client(already_embedded_article_ids=set())
+
+    mock_upsert = MagicMock()
+    monkeypatch.setattr(
+        "scripts.backfill_embeddings.embedder.upsert_embeddings", mock_upsert
+    )
+
+    run_backfill(data_dir, batch_size=2, client=mock_client)
+
+    doc_id = slugify_doc_name("01_2020_tt-btp")
+    assert mock_upsert.call_count == 2
+    batch_id_sets = [set(c.kwargs["ids"]) for c in mock_upsert.call_args_list]
+    # 2 Dieu ngan nhat (1, 3) phai o CUNG mot batch, 2 Dieu dai nhat (2, 4)
+    # o batch con lai - KHONG phai theo thu tu file (1,2 / 3,4).
+    assert {f"{doc_id}_dieu-1", f"{doc_id}_dieu-3"} in batch_id_sets
+    assert {f"{doc_id}_dieu-2", f"{doc_id}_dieu-4"} in batch_id_sets
+
+
+def test_batch_cap_for_length_uses_smaller_cap_for_longer_tiers():
+    """Nguong 2751/7640 ky tu lay tu quet THAT toan bo 61,069 file trong
+    data/raw (2026-08-04, p90/p99 - xem TIEN_DO.md). Van ban cang dai,
+    batch-size cang phai nho de tranh OOM tren GPU 6GB (da xac nhan that:
+    batch=128 voi van ban ~4737 token da OOM)."""
+    # Tang ngan (<=2751 ky tu, p90): dung nguyen max_batch_size.
+    assert _batch_cap_for_length(2751, max_batch_size=32) == 32
+    # Tang trung (2751 < do dai <=7640, p90-p99): cap ve 8 (< 32 yeu cau).
+    assert _batch_cap_for_length(2752, max_batch_size=32) == 8
+    assert _batch_cap_for_length(7640, max_batch_size=32) == 8
+    # Tang dai (>7640 ky tu, p99+, se cham max_seq_length khi encode): cap
+    # ve 1 - xu ly tung file rieng, khong ghep batch (chua co du lieu that
+    # de kiem chung an toan o muc lon hon).
+    assert _batch_cap_for_length(7641, max_batch_size=32) == 1
+    # max_batch_size nho hon cap tang - khong duoc VUOT max_batch_size du
+    # tang nao (vd --batch-size 4 tay - khong the "tang" batch-size len 8).
+    assert _batch_cap_for_length(100, max_batch_size=4) == 4
+    assert _batch_cap_for_length(3000, max_batch_size=4) == 4
+
+
+def test_group_into_length_aware_batches_splits_outlier_into_own_small_batch():
+    """9 item NGAN (~100 ky tu, tang 1) + 1 item DAI (~8000 ky tu, tang 3) -
+    da sap xep tang dan. max_batch_size=32 (nhu config.EMBED_BATCH_SIZE):
+    9 item ngan phai gom CHUNG 1 batch (tang 1 cho phep toi 32), item dai
+    phai o RIENG 1 batch (tang 3 cap = 1) - khong duoc ghep chung."""
+    pending = [(f"id{i}", "x" * 100, {}) for i in range(9)]
+    pending.append(("id_dai", "y" * 8000, {}))
+
+    batches = _group_into_length_aware_batches(pending, max_batch_size=32)
+
+    assert len(batches) == 2
+    short_batch, long_batch = batches
+    assert len(short_batch) == 9
+    assert len(long_batch) == 1
+    assert long_batch[0][0] == "id_dai"
+
+
+def test_group_into_length_aware_batches_respects_max_batch_size_within_tier():
+    """5 item NGAN (tang 1, cho phep toi da) nhung max_batch_size=2 - phai
+    chia thanh nhieu batch <=2 item, khong gom het vao 1 batch dù cung
+    tang."""
+    pending = [(f"id{i}", "x" * 10, {}) for i in range(5)]
+
+    batches = _group_into_length_aware_batches(pending, max_batch_size=2)
+
+    assert [len(b) for b in batches] == [2, 2, 1]
+
+
+def test_run_backfill_isolates_extremely_long_article_into_its_own_batch(
+    tmp_path, monkeypatch
+):
+    """Kiem chung end-to-end qua run_backfill that (khong chi ham thuan
+    tuy): 1 file cuc dai (>7640 ky tu, tang 3) DU batch_size mac dinh 10
+    van khong duoc gop chung voi cac file ngan khac - phai la 1 loi goi
+    upsert_embeddings RIENG chi co 1 item."""
+    data_dir = tmp_path / "corpus"
+    _write_article_chunk_file(data_dir, "01_2020_tt-btp_1.md", 1, "A", "x" * 10)
+    _write_article_chunk_file(data_dir, "01_2020_tt-btp_2.md", 2, "B", "y" * 10)
+    _write_article_chunk_file(data_dir, "01_2020_tt-btp_3.md", 3, "C", "z" * 8000)
+
+    mock_client = _make_mock_client(already_embedded_article_ids=set())
+
+    mock_upsert = MagicMock()
+    monkeypatch.setattr(
+        "scripts.backfill_embeddings.embedder.upsert_embeddings", mock_upsert
+    )
+
+    run_backfill(data_dir, batch_size=10, client=mock_client)
+
+    doc_id = slugify_doc_name("01_2020_tt-btp")
+    assert mock_upsert.call_count == 2
+    call_id_sets = [set(c.kwargs["ids"]) for c in mock_upsert.call_args_list]
+    assert {f"{doc_id}_dieu-1", f"{doc_id}_dieu-2"} in call_id_sets
+    assert {f"{doc_id}_dieu-3"} in call_id_sets
 
 
 def test_run_backfill_owns_and_closes_client_when_not_injected(tmp_path, monkeypatch):

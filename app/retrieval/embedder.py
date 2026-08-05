@@ -28,7 +28,19 @@ cho phep)."""
 from __future__ import annotations
 
 import logging
+import os
 from typing import Any
+
+# HF_HUB_OFFLINE=1 (setdefault - khong ghi de neu nguoi van hanh da tu dat
+# gia tri khac, vd de chu dong tai mot model MOI chua cache). Dat TRUOC khi
+# import sentence_transformers/huggingface_hub - chan doan that (2026-08-04,
+# cProfile SentenceTransformer(...) tren CPU) xac nhan: moi lan construct
+# model, thu vien tu dong goi ~34 HTTP request kiem tra revision moi tren
+# Hugging Face Hub - DU model da cache day du tren may (chiem 6.1/8.76s thoi
+# gian khoi tao, ~70%). Model trong du an nay (config.EMBEDDING_MODEL) luon
+# da duoc cache truoc (xem quickstart.md) nen bo qua kiem tra mang la an
+# toan, tiet kiem ~1 lan/process. Xem TIEN_DO.md muc chan doan GPU cham.
+os.environ.setdefault("HF_HUB_OFFLINE", "1")
 
 import chromadb
 from chromadb.api.models.Collection import Collection

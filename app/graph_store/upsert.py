@@ -84,6 +84,77 @@ _REFERENCE_QUERY = (
 )
 
 
+# DEFINES/USES_TERM (T012 hoan thien): batch qua UNWIND (khong phai N loi
+# goi client.run rieng le nhu upsert_references) - quy mo 60k+ Article,
+# cung ly do backfill_embeddings.py's _update_chroma_ids dung UNWIND (xem
+# TIEN_DO.md).
+_UPSERT_TERMS_AND_DEFINES_QUERY = (
+    "UNWIND $rows AS row "
+    "MERGE (t:Term {term_id: row.term_id}) "
+    # ON CREATE SET (khong phai SET vo dieu kien): neu nhieu Article cung
+    # dinh nghia mot term_id trung nhau (hiem nhung co the), giu dinh
+    # nghia cua lan MERGE DAU TIEN tao node - cung triet ly voi raw_text
+    # trong _REFERENCE_QUERY o tren.
+    "ON CREATE SET t.ten_thuat_ngu = row.ten_thuat_ngu, "
+    "t.dinh_nghia = row.dinh_nghia "
+    "WITH t, row "
+    "MATCH (a:Article {article_id: row.article_id}) "
+    "MERGE (a)-[:DEFINES]->(t)"
+)
+
+# Term PHAI da ton tai (tao boi upsert_definitions o tren, cung lan chay
+# hoac lan chay truoc) - dung MATCH (khong phai MERGE) cho Term o day, giu
+# dung nguyen tac "khong tu bia Term moi tu USES_TERM" (data-model.md:
+# USES_TERM la Article dung LAI thuat ngu DA duoc dinh nghia, khong phai
+# nguon tao Term).
+_UPSERT_USES_TERM_QUERY = (
+    "UNWIND $rows AS row "
+    "MATCH (a:Article {article_id: row.article_id}) "
+    "MATCH (t:Term {term_id: row.term_id}) "
+    "MERGE (a)-[:USES_TERM]->(t)"
+)
+
+
+def upsert_definitions(client: Neo4jClient, rows: list[dict]) -> None:
+    """Ghi mot batch dinh nghia (data-model.md DEFINES: Article -> Term)
+    trong MOT cau UNWIND duy nhat.
+
+    Moi `row` trong `rows`: {"article_id", "term_id", "ten_thuat_ngu",
+    "dinh_nghia"} - khop truc tiep voi `ExtractedDefinition`
+    (term_extractor.py, T012) cong them `article_id` nguon (module do
+    khong biet article_id - chi tra ve dinh nghia tu mot doan text don le,
+    xem term_extractor.py docstring, Dieu 5).
+
+    GIA DINH: moi `article_id` la mot Article DA duoc ghi that su truoc do
+    (cung gia dinh voi `upsert_references`) - ham nay chi MATCH node
+    Article (khong MERGE).
+
+    `rows` rong -> khong goi Neo4j (tranh round-trip lang phi).
+    """
+    if not rows:
+        return
+    client.run(_UPSERT_TERMS_AND_DEFINES_QUERY, rows=rows)
+
+
+def upsert_term_usages(client: Neo4jClient, rows: list[dict]) -> None:
+    """Ghi mot batch canh USES_TERM (data-model.md: Article -> Term) trong
+    MOT cau UNWIND duy nhat.
+
+    Moi `row` trong `rows`: {"article_id", "term_id"} - khop voi
+    `TermUsage.term_id` (term_extractor.py) cong `article_id` nguon.
+
+    GIA DINH: ca Article VA Term da ton tai truoc do (Term duoc tao boi
+    `upsert_definitions`, PHAI chay truoc trong cung mot lan orchestration
+    - xem scripts/extract_terms.py) - ham nay chi MATCH ca hai, khong MERGE
+    Term moi.
+
+    `rows` rong -> khong goi Neo4j.
+    """
+    if not rows:
+        return
+    client.run(_UPSERT_USES_TERM_QUERY, rows=rows)
+
+
 def upsert_document(
     client: Neo4jClient, parsed: ParsedDocument, batch_id: str
 ) -> None:

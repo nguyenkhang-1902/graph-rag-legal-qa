@@ -12,11 +12,24 @@ embed_texts batch toan bo text trong MOT loi goi encode (khong loop tung
 text), (3) Chroma collection cung duoc cache tuong tu, (4) upsert_embeddings
 goi dung collection.upsert voi ids/documents/embeddings/metadatas khop nhau.
 """
+import os
+
 import numpy as np
 import pytest
 from unittest.mock import MagicMock
 
 from app.retrieval import embedder
+
+
+def test_module_defaults_hf_hub_offline_to_avoid_redundant_network_checks():
+    """cProfile that (2026-08-04, chan doan GPU cham) xac nhan: moi lan
+    construct SentenceTransformer, thu vien goi ~34 HTTP request kiem tra
+    revision moi cua model tren Hugging Face Hub - DU model da cache day du
+    tren may (6.1/8.76s init time la network, xem TIEN_DO.md). Module nay
+    phai tu dat HF_HUB_OFFLINE=1 (bang setdefault - khong ghi de neu nguoi
+    van hanh da tu dat gia tri khac de ho chu dong tai model MOI chua
+    cache)."""
+    assert os.environ.get("HF_HUB_OFFLINE") == "1"
 
 
 @pytest.fixture(autouse=True)

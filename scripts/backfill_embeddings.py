@@ -65,6 +65,58 @@ def _update_chroma_ids(client: Neo4jClient, article_ids: list[str]) -> None:
     )
 
 
+# Nguong do dai (SO KY TU) rut ra tu quet THAT toan bo 61,069 file trong
+# data/raw (2026-08-04, xem TIEN_DO.md muc chan doan GPU cham): p90=2751,
+# p99=7640 ky tu. RTX 3050 chi co 6GB VRAM, da xac nhan OOM THAT khi 1 batch
+# chua van ban ~4737 token (~19153 ky tu) o batch_size=128. Van ban dai hon
+# BUOC PHAI dung batch nho hon de tranh OOM giua chung mot lan chay backfill
+# keo dai nhieu gio dong ho (khong the Ctrl+C giua 1 loi goi model.encode()
+# dang OOM - hong ca tien trinh). Cap 8/1 o day la GIA TRI AN TOAN THAN
+# TRONG (chua co du lieu that de kiem chung batch lon hon o 2 tang nay),
+# UU TIEN an toan hon toi uu toc do cho ~10% file con lai cua corpus.
+_LENGTH_TIER_CUTOFFS_CHARS = (2751, 7640)  # (p90, p99)
+_LENGTH_TIER_CAPS = (None, 8, 1)  # None = dung nguyen max_batch_size yeu cau
+
+
+def _batch_cap_for_length(char_len: int, max_batch_size: int) -> int:
+    """Tra ve batch-size toi da cho MOT van ban dai `char_len` ky tu, khong
+    bao gio VUOT `max_batch_size` (gia tri --batch-size/config.EMBED_BATCH_SIZE
+    nguoi van hanh yeu cau) du tang do dai nao."""
+    for cutoff, tier_cap in zip(_LENGTH_TIER_CUTOFFS_CHARS, _LENGTH_TIER_CAPS[:-1]):
+        if char_len <= cutoff:
+            resolved = max_batch_size if tier_cap is None else tier_cap
+            return min(resolved, max_batch_size)
+    return min(_LENGTH_TIER_CAPS[-1], max_batch_size)
+
+
+def _group_into_length_aware_batches(
+    pending: list[tuple[str, str, dict]], max_batch_size: int
+) -> list[list[tuple[str, str, dict]]]:
+    """Chia `pending` (GIA DINH da sap xep tang dan theo do dai text) thanh
+    cac batch co kich thuoc THAY DOI theo do dai - van ban cang dai, batch
+    cang nho (xem `_batch_cap_for_length`/module docstring o tren). Doi cap
+    (vd tu tang ngan sang tang dai) hoac day batch hien tai deu ket thuc
+    batch do, mo batch moi - vi pending da sort tang dan, cap chi giam dan
+    (khong bao gio tang lai) trong suot vong lap."""
+    batches: list[list[tuple[str, str, dict]]] = []
+    current: list[tuple[str, str, dict]] = []
+    current_cap: int | None = None
+
+    for item in pending:
+        cap = _batch_cap_for_length(len(item[1]), max_batch_size)
+        if current and (cap != current_cap or len(current) >= current_cap):
+            batches.append(current)
+            current = []
+        if not current:
+            current_cap = cap
+        current.append(item)
+
+    if current:
+        batches.append(current)
+
+    return batches
+
+
 def run_backfill(
     data_dir: str | Path,
     *,
@@ -117,10 +169,20 @@ def run_backfill(
                 )
             )
 
-        batches = [
-            pending[i : i + effective_batch_size]
-            for i in range(0, len(pending), effective_batch_size)
-        ]
+        # Sap xep theo do dai full_text TRUOC khi chia batch (chan doan that
+        # 2026-08-04: corpus co do dai Dieu lech rat manh - trung vi 298
+        # token nhung co Dieu toi 4737 token, xem TIEN_DO.md). Neu KHONG sap
+        # xep, mot Dieu dai vo tinh loi vao 1 batch buoc CA batch pad theo
+        # do dai do (batch=64 tren mau that CHAM HON 7.7 lan/item so voi
+        # batch=32 do dinh outlier) - sap xep gom cac Dieu dai tuong duong
+        # vao cung batch, tranh Dieu ngan phai "cong" chi phi cua Dieu dai.
+        pending.sort(key=lambda item: len(item[1]))
+
+        # Chia batch THEO DO DAI (khong con kich thuoc co dinh) - van ban
+        # cang dai batch cang nho, tranh OOM GPU cho ~10% file dai trong
+        # corpus that (xem _LENGTH_TIER_CUTOFFS_CHARS/_batch_cap_for_length
+        # o tren, TIEN_DO.md muc chan doan GPU cham).
+        batches = _group_into_length_aware_batches(pending, effective_batch_size)
         total_batches = len(batches)
         logger.info(
             "bat dau backfill embedding: %d file kham pha, %d can embed "

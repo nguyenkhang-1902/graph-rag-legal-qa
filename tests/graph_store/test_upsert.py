@@ -29,7 +29,12 @@ from unittest.mock import MagicMock
 
 from app.extraction.reference_extractor import ExtractedReference
 from app.extraction.structure_parser import Article, Chapter, Clause, ParsedDocument
-from app.graph_store.upsert import upsert_document, upsert_references
+from app.graph_store.upsert import (
+    upsert_definitions,
+    upsert_document,
+    upsert_references,
+    upsert_term_usages,
+)
 
 
 def _make_mock_client():
@@ -305,3 +310,86 @@ def test_article_upsert_sets_is_external_false_unconditionally():
     )
     reference_query = ref_client.run.call_args_list[0].args[0]
     assert "ON CREATE SET target.is_external = true" in reference_query
+
+
+# --- upsert_definitions / upsert_term_usages (T012 hoan thien) -----------
+
+
+def test_upsert_definitions_sends_one_batched_unwind_call_not_one_per_row():
+    """Quy mo 60k+ Article (giong ly do backfill_embeddings.py's
+    _update_chroma_ids dung UNWIND thay vi N loi goi rieng) - upsert_definitions
+    PHAI gui MOT cau UNWIND duy nhat cho ca batch, khong phai N loi goi
+    client.run rieng le cho tung dinh nghia."""
+    client = _make_mock_client()
+    rows = [
+        {
+            "article_id": "luat-a_dieu-1",
+            "term_id": "ngay",
+            "ten_thuat_ngu": "Ngày",
+            "dinh_nghia": "ngày dương lịch",
+        },
+        {
+            "article_id": "luat-b_dieu-2",
+            "term_id": "don-pct",
+            "ten_thuat_ngu": "Đơn PCT",
+            "dinh_nghia": "đơn đăng ký sáng chế",
+        },
+    ]
+
+    upsert_definitions(client, rows)
+
+    assert client.run.call_count == 1
+    query, kwargs = client.run.call_args
+    assert "UNWIND $rows" in query[0]
+    assert "MERGE (t:Term {term_id: row.term_id})" in query[0]
+    assert "MERGE (a)-[:DEFINES]->(t)" in query[0]
+    assert kwargs["rows"] == rows
+
+
+def test_upsert_definitions_empty_rows_does_not_call_neo4j():
+    client = _make_mock_client()
+    upsert_definitions(client, [])
+    client.run.assert_not_called()
+
+
+def test_upsert_definitions_term_uses_on_create_set_not_overwrite_existing():
+    """Nhieu Article co the (hiem, nhung co the) cung dinh nghia mot
+    term_id trung nhau - ON CREATE SET giu dinh nghia DAU TIEN, khong ghi
+    de moi lan MERGE lai (tuong tu triet ly raw_text trong upsert_references)."""
+    client = _make_mock_client()
+    upsert_definitions(
+        client,
+        [
+            {
+                "article_id": "luat-a_dieu-1",
+                "term_id": "ngay",
+                "ten_thuat_ngu": "Ngày",
+                "dinh_nghia": "ngày dương lịch",
+            }
+        ],
+    )
+    query = client.run.call_args[0][0]
+    assert "ON CREATE SET t.ten_thuat_ngu" in query
+
+
+def test_upsert_term_usages_sends_one_batched_unwind_call_not_one_per_row():
+    client = _make_mock_client()
+    rows = [
+        {"article_id": "luat-a_dieu-5", "term_id": "ngay"},
+        {"article_id": "luat-a_dieu-6", "term_id": "ngay"},
+    ]
+
+    upsert_term_usages(client, rows)
+
+    assert client.run.call_count == 1
+    query, kwargs = client.run.call_args
+    assert "UNWIND $rows" in query[0]
+    assert "MATCH (t:Term {term_id: row.term_id})" in query[0]
+    assert "MERGE (a)-[:USES_TERM]->(t)" in query[0]
+    assert kwargs["rows"] == rows
+
+
+def test_upsert_term_usages_empty_rows_does_not_call_neo4j():
+    client = _make_mock_client()
+    upsert_term_usages(client, [])
+    client.run.assert_not_called()
