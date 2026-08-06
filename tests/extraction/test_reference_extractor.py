@@ -40,6 +40,25 @@ def test_slugify_nghi_dinh_with_slashes_and_diacritics():
     )
 
 
+@pytest.mark.parametrize("ma_hieu", ["nð-cp", "NÐ-CP"])
+def test_slugify_treats_eth_as_mis_encoded_dj(ma_hieu):
+    # BUG THAT (2026-08-06, Khang chot sua): 4 van ban trong corpus dung chu
+    # "ð" (eth, U+00F0) thay cho "đ" (U+0111) - loi encoding cua nguon crawl:
+    #   102_2017_nð-cp (69 file) · 146_2018_nð-cp (42) · 81_2016_nð-cp (2)
+    #   · 89_2016_nð-cp (6)  = 119 Article
+    # "ð" la MOT CHU CAI KHAC, khong decompose duoc thanh "d" + dau, nen
+    # truoc ban sua nay bi _NON_ALNUM_RE thay bang "-": "102_2017_nð-cp" ->
+    # "102-2017-n-cp". Hau qua: trich dan viet DUNG ("102/2017/NĐ-CP") sinh
+    # "102-2017-nd-cp", KHONG BAO GIO khop doc_id that -> 4 van ban nay khong
+    # the duoc trich dan cheo tim thay.
+    #
+    # Chuan hoa "ð" -> "đ" o day (mot noi duy nhat) thay vi o tung caller:
+    # slugify_doc_name la diem DUY NHAT bien ten van ban thanh slug, nen ca
+    # duong ten-file (app/ingest.py) va duong trich dan
+    # (doc_identity.build_doc_identity) tu dong nhat quan.
+    assert slugify_doc_name(f"102_2017_{ma_hieu}") == "102-2017-nd-cp"
+
+
 # --- extract_references --------------------------------------------------
 
 

@@ -59,27 +59,35 @@ def test_maps_all_three_encoding_variants_of_nghi_dinh(ma_hieu):
     assert loai_vb_from_ma_hieu(ma_hieu) == "Nghị định"
 
 
-def test_eth_variant_doc_id_intentionally_differs_from_so_hieu_doc_id():
-    # HAN CHE DA BIET, DO DUOC, CHUA SUA (xem module docstring
-    # doc_identity.py): 4 van ban that dung "nð" trong ten file (102_2017,
-    # 146_2018, 81_2016, 89_2016 = 119 Article) co doc_id "102-2017-n-cp"
-    # (eth bi strip), trong khi trich dan viet dung "102/2017/NĐ-CP" sinh
-    # "102-2017-nd-cp" -> khong khop, 4 van ban nay luon thanh external
-    # placeholder.
+def test_eth_variant_doc_id_now_matches_so_hieu_doc_id():
+    # DA SUA (2026-08-06, Khang chot). Truoc day test nay GHIM han che nguoc
+    # lai (doc_id tu ten file "102-2017-n-cp" KHAC doc_id tu so hieu
+    # "102-2017-nd-cp") va co ghi chu "neu Khang quyet sua thi test nay se
+    # do" - dung nhu vay, no da do va duoc dao lai o day.
     #
-    # Test nay GHIM hanh vi hien tai co chu dich: doi doc_id nghia la doi
-    # article_id, ma article_id CHINH LA id trong Chroma -> phai embed lai.
-    # Neu sau nay Khang quyet sua, test nay se do va bat buoc phai doc ghi
-    # chu tren (khong am tham doi khoa dinh danh cua 119 Article that).
+    # 4 van ban that dung "ð" (eth U+00F0) trong ten file (102_2017, 146_2018,
+    # 81_2016, 89_2016 = 119 Article) truoc day khong bao gio duoc trich dan
+    # cheo tim thay. Fix o `slugify_doc_name` (mot noi duy nhat, xem
+    # test_slugify_treats_eth_as_mis_encoded_dj) nen CA HAI duong tu dong
+    # nhat quan.
+    #
+    # Doi doc_id = doi article_id = doi id trong Chroma -> 119 Article phai
+    # duoc embed lai (~11s GPU) va cac node cu phai duoc xoa: xem
+    # scripts/migrate_references.py buoc "xoa Document khong con suy ra duoc
+    # tu ten file".
     from app.extraction.slugify import slugify_doc_name
 
     doc_id_tu_ten_file = slugify_doc_name("102_2017_nð-cp")
     doc_id_tu_so_hieu = build_doc_identity("102", "2017", "NĐ-CP").doc_id
-    assert doc_id_tu_ten_file == "102-2017-n-cp"
+    assert doc_id_tu_ten_file == "102-2017-nd-cp"
     assert doc_id_tu_so_hieu == "102-2017-nd-cp"
-    assert doc_id_tu_ten_file != doc_id_tu_so_hieu
-    # loai_vb/title thi VAN dung cho ca hai duong (fix cua T025).
-    assert identity_from_doc_prefix("102_2017_nð-cp").loai_vb == "Nghị định"
+    assert doc_id_tu_ten_file == doc_id_tu_so_hieu
+
+    identity = identity_from_doc_prefix("102_2017_nð-cp")
+    assert identity.loai_vb == "Nghị định"
+    # `so_hieu` hien thi cung phai la "Đ" dung, khong con chu eth.
+    assert identity.so_hieu == "102/2017/NĐ-CP"
+    assert identity.title == "Nghị định 102/2017/NĐ-CP"
 
 
 @pytest.mark.parametrize("ma_hieu", ["qh13", "qh14", "qh", "qh10"])

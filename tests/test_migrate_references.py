@@ -33,8 +33,23 @@ from scripts.migrate_references import (
 
 
 def _mock_client():
+    """Neo4jClient mock tra ve SHAPE dung cho tung loai query.
+
+    Khong dung mot `return_value` chung ([{"n": 0}]) cho moi query: cac cau
+    `RETURN ... AS article_id` co shape KHAC cac cau `RETURN count(...) AS n`,
+    va code that doc dung key tuong ung - mock mot shape duy nhat se lam test
+    do vi KeyError chu khong phai vi hanh vi sai.
+    """
     client = MagicMock()
-    client.run.return_value = [{"n": 0}]
+
+    def run(query, **_params):
+        if "article_id" in query and "DELETE" not in query.upper():
+            return []
+        if "d.doc_id AS doc_id" in query:
+            return []
+        return [{"n": 0}]
+
+    client.run.side_effect = run
     return client
 
 
@@ -51,7 +66,13 @@ def test_dry_run_sends_no_delete_or_write():
     reset = MagicMock()
 
     run_migration(
-        "data/raw", client=client, apply=False, reingest=reingest, reset_checkpoint=reset
+        "data/raw",
+        client=client,
+        apply=False,
+        reingest=reingest,
+        reset_checkpoint=reset,
+        real_doc_ids={"co-that"},
+        stale_doc_ids=[],
     )
 
     for query in _queries(client):
@@ -73,12 +94,21 @@ def test_dry_run_still_counts_current_state_for_the_report():
         apply=False,
         reingest=MagicMock(),
         reset_checkpoint=MagicMock(),
+        real_doc_ids={"co-that"},
+        stale_doc_ids=[],
     )
 
     assert any("count(" in q for q in _queries(client))
 
 
 # --- Thu tu bat buoc va noi dung cac lenh xoa ---------------------------
+
+
+def _plausible_real_doc_ids(n: int = 100) -> set[str]:
+    """Tap doc_id "that" du lon de mot doc_id cu KHONG vuot nguong chan tham
+    hoa (_MAX_STALE_DOCUMENT_SHARE = 5%). Ty le that trong corpus la 4/3,203
+    (0.12%) nen 1/101 (~1%) la mo phong hop ly."""
+    return {f"doc-that-{i}" for i in range(n)}
 
 
 def test_apply_runs_steps_in_required_order():
@@ -89,17 +119,148 @@ def test_apply_runs_steps_in_required_order():
     original_run = client.run
 
     def tracking_run(query, **params):
-        if "DELETE" in query.upper():
-            calls.append("delete-refs" if "REFERENCES" in query else "delete-orphan")
+        upper = query.upper()
+        if "DELETE" in upper:
+            if "REFERENCES" in query:
+                calls.append("delete-refs")
+            elif "is_external" in query:
+                calls.append("delete-orphan")
+            else:
+                calls.append("delete-stale-doc")
         return original_run(query, **params)
 
     client.run = tracking_run
 
     run_migration(
-        "data/raw", client=client, apply=True, reingest=reingest, reset_checkpoint=reset
+        "data/raw",
+        client=client,
+        apply=True,
+        reingest=reingest,
+        reset_checkpoint=reset,
+        real_doc_ids=_plausible_real_doc_ids(),
+        stale_doc_ids=["cu-khong-con"],
     )
 
-    assert calls == ["delete-refs", "delete-orphan", "reset", "reingest"]
+    assert calls == [
+        "delete-refs",
+        "delete-orphan",
+        "delete-stale-doc",
+        "reset",
+        "reingest",
+    ]
+
+
+# --- Xoa Document khong con suy ra duoc tu ten file (T027b, chu "eth") ----
+# 4 van ban that dung "ð" (eth) co doc_id CU la "102-2017-n-cp"...; sau khi
+# `slugify_doc_name` chuan hoa eth (2026-08-06) doc_id MOI la
+# "102-2017-nd-cp". Node cu tro thanh RAC: re-ingest tao node moi ben canh
+# chu khong doi ten node cu. Phai xoa node cu + xoa luon ban ghi cua chung
+# trong Chroma (id = article_id), roi backfill embedding cho node moi.
+
+
+def test_stale_documents_are_deleted_with_their_whole_subtree():
+    client = _mock_client()
+
+    run_migration(
+        "data/raw",
+        client=client,
+        apply=True,
+        reingest=MagicMock(),
+        reset_checkpoint=MagicMock(),
+        real_doc_ids=_plausible_real_doc_ids() | {"102-2017-nd-cp"},
+        stale_doc_ids=["102-2017-n-cp"],
+    )
+
+    stale_queries = [
+        q for q in _queries(client) if "DELETE" in q.upper() and "REFERENCES" not in q
+        and "is_external" not in q
+    ]
+    assert stale_queries, "khong co lenh xoa Document cu"
+    q = stale_queries[0]
+    # Phai xoa CA cay con: Chapter/Article/Clause thuoc Document do.
+    for label in ("Chapter", "Article", "Clause"):
+        assert label in q, f"query xoa Document cu khong xu ly {label}"
+
+
+def test_stale_article_ids_are_removed_from_chroma():
+    client = _mock_client()
+    client.run.side_effect = lambda q, **p: (
+        [{"article_id": "102-2017-n-cp_dieu-1"}, {"article_id": "102-2017-n-cp_dieu-2"}]
+        if "article_id" in q and "DELETE" not in q.upper()
+        else [{"n": 0}]
+    )
+    chroma_deleted: list[list[str]] = []
+
+    run_migration(
+        "data/raw",
+        client=client,
+        apply=True,
+        reingest=MagicMock(),
+        reset_checkpoint=MagicMock(),
+        real_doc_ids=_plausible_real_doc_ids() | {"102-2017-nd-cp"},
+        stale_doc_ids=["102-2017-n-cp"],
+        delete_from_chroma=lambda ids: chroma_deleted.append(list(ids)),
+    )
+
+    assert chroma_deleted == [["102-2017-n-cp_dieu-1", "102-2017-n-cp_dieu-2"]]
+
+
+def test_no_stale_documents_means_no_stale_delete_and_no_chroma_touch():
+    client = _mock_client()
+    chroma_deleted: list[list[str]] = []
+
+    run_migration(
+        "data/raw",
+        client=client,
+        apply=True,
+        reingest=MagicMock(),
+        reset_checkpoint=MagicMock(),
+        real_doc_ids={"102-2017-nd-cp"},
+        stale_doc_ids=[],
+        delete_from_chroma=lambda ids: chroma_deleted.append(list(ids)),
+    )
+
+    assert chroma_deleted == []
+
+
+# --- Chan tham hoa: khong bao gio xoa toan bo graph ----------------------
+
+
+def test_refuses_to_run_when_no_real_doc_ids_found():
+    # Neu `data_dir` sai/rong, tap doc_id suy tu ten file se RONG -> MOI
+    # Document deu bi coi la "cu" -> xoa sach graph. Phai tu choi chay.
+    client = _mock_client()
+
+    with pytest.raises(RuntimeError, match="khong tim thay doc_id nao"):
+        run_migration(
+            "duong/dan/sai",
+            client=client,
+            apply=True,
+            reingest=MagicMock(),
+            reset_checkpoint=MagicMock(),
+            real_doc_ids=set(),
+            stale_doc_ids=["a", "b"],
+        )
+
+
+def test_refuses_to_delete_an_implausibly_large_share_of_documents():
+    # Do that: chi 4/3,203 van ban (0.12%) can xoa. Neu con so nay bat ngo
+    # lon (vd doi cach sinh doc_id lam lech ca corpus), gan nhu chac chan la
+    # loi lap trinh chu khong phai y dinh - dung lai, bat nguoi kiem tra.
+    client = _mock_client()
+    real = {f"doc-{i}" for i in range(100)}
+    stale = [f"cu-{i}" for i in range(20)]  # 20/120 = 16.7%
+
+    with pytest.raises(RuntimeError, match="qua nhieu Document"):
+        run_migration(
+            "data/raw",
+            client=client,
+            apply=True,
+            reingest=MagicMock(),
+            reset_checkpoint=MagicMock(),
+            real_doc_ids=real,
+            stale_doc_ids=stale,
+        )
 
 
 def test_delete_references_query_is_batched_to_avoid_heap_exhaustion():
@@ -132,6 +293,8 @@ def test_apply_passes_data_dir_through_to_reingest():
         apply=True,
         reingest=reingest,
         reset_checkpoint=MagicMock(),
+        real_doc_ids={"co-that"},
+        stale_doc_ids=[],
     )
 
     assert reingest.call_args.args[0] == "duong/dan/rieng"
@@ -147,6 +310,8 @@ def test_run_migration_returns_before_and_after_counts():
         apply=True,
         reingest=MagicMock(),
         reset_checkpoint=MagicMock(),
+        real_doc_ids={"co-that"},
+        stale_doc_ids=[],
     )
 
     assert "truoc" in report and "sau" in report
@@ -166,4 +331,6 @@ def test_reingest_failure_propagates_and_is_not_swallowed():
             apply=True,
             reingest=MagicMock(side_effect=RuntimeError("ingest that bai")),
             reset_checkpoint=MagicMock(),
+            real_doc_ids={"co-that"},
+            stale_doc_ids=[],
         )

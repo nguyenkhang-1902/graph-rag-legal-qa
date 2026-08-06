@@ -53,7 +53,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-from app.extraction.slugify import slugify_doc_name
+from app.extraction.slugify import normalize_eth, slugify_doc_name
 
 # Tien to ma hieu (phan truoc dau "-" DAU TIEN, ha chu, da chuan hoa "d"
 # -> "d" qua slugify_doc_name) -> loai van ban. Cac khoa la slug ASCII nen
@@ -75,35 +75,14 @@ _MA_HIEU_PREFIX_TO_LOAI_VB: dict[str, str] = {
 # "ttlt-btnmt-bnv") nhung theo do that KHONG chua "_".
 _DOC_PREFIX_RE = re.compile(r"^(?P<so>\d+)_(?P<nam>\d{4})_(?P<ma_hieu>.+)$")
 
-# "d" (eth, U+00F0) la loi encoding cua nguon crawl thay cho "d" (U+0111) -
-# xuat hien that trong 4 doc_prefix (102_2017_nd-cp, 146_2018_nd-cp,
-# 81_2016_nd-cp, 89_2016_nd-cp = 119 file). CHI dung khi nhan dien loai van
-# ban, KHONG dung khi tinh doc_id (xem `_HAN_CHE_ETH_DOC_ID` duoi day).
-_ETH = "ð"
-
-
-# === HAN CHE DA BIET, DO DUOC, CHUA SUA (can Khang quyet) ===
-# 4 van ban tren co doc_id THAT (sinh tu ten file qua slugify_doc_name) la
-# "102-2017-n-cp"... - "d" bi strip thanh dau "-". Trong khi trich dan trong
-# van ban viet dung "Nghi dinh so 102/2017/ND-CP" -> build_doc_identity sinh
-# "102-2017-nd-cp". Hai chuoi KHONG khop -> 4 van ban nay (119 Article)
-# khong bao gio duoc trich dan cheo tim thay, luon thanh external placeholder.
-#
-# KHONG tu sua o day vi sua nghia la doi `doc_id` -> doi `article_id` ->
-# `article_id` CHINH LA id trong Chroma, nen phai embed lai 119 Article va
-# cap nhat Neo4j. Re (~11s GPU) nhung day la thao tac tren KHOA dinh danh
-# cua du lieu that da ingest - can quyet dinh ro rang, khong lam ngam trong
-# mot task khac (cung nguyen tac voi ADR-003/BatchSizeMismatchError).
-# Ty le: 4/3,203 van ban (0.12%), 119/60,679 Article (0.20%).
-_HAN_CHE_ETH_DOC_ID = (
-    "4 van ban dung 'd' (eth) trong ten file co doc_id lech voi doc_id suy "
-    "tu so hieu trong trich dan - xem ghi chu tren, chua sua co chu dich."
-)
-
-
-def _normalize_eth(text: str) -> str:
-    """Quy "d" (eth, U+00F0) ve "d" - CHI dung cho nhan dien loai van ban."""
-    return text.replace(_ETH, "đ").replace(_ETH.upper(), "Đ")
+# GHI CHU: chu "ð" (eth, U+00F0) - loi encoding nguon crawl thay cho "đ",
+# xuat hien that trong 4 doc_prefix (102_2017_nð-cp, 146_2018_nð-cp,
+# 81_2016_nð-cp, 89_2016_nð-cp = 119 Article) - da duoc xu ly o MOT NOI DUY
+# NHAT: `slugify.normalize_eth`, goi tu dong trong `slugify_doc_name`. Nho
+# vay doc_id suy tu TEN FILE va doc_id suy tu SO HIEU tu dong nhat quan
+# (truoc ban sua: "102-2017-n-cp" vs "102-2017-nd-cp" -> 4 van ban nay khong
+# bao gio duoc trich dan cheo tim thay). Module nay chi con can `normalize_eth`
+# cho chuoi `so_hieu` HIEN THI - chuoi do khong di qua slugify.
 
 
 @dataclass(frozen=True)
@@ -144,7 +123,7 @@ def loai_vb_from_ma_hieu(ma_hieu: str) -> str | None:
     """
     if not ma_hieu:
         return None
-    prefix = slugify_doc_name(_normalize_eth(ma_hieu)).split("-", 1)[0]
+    prefix = slugify_doc_name(ma_hieu).split("-", 1)[0]
     return _MA_HIEU_PREFIX_TO_LOAI_VB.get(prefix)
 
 
@@ -162,7 +141,9 @@ def build_doc_identity(so: str, nam: str, ma_hieu: str) -> DocIdentity:
     ban phap luat), nhung `doc_id` van la slug ha chu.
     """
     doc_id = slugify_doc_name(f"{so}_{nam}_{ma_hieu}")
-    so_hieu = f"{so}/{nam}/{ma_hieu.upper()}"
+    # `normalize_eth` cho chuoi HIEN THI: khong di qua slugify nen phai goi
+    # tuong minh, neu khong "102/2017/NĐ-CP" se hien ra "102/2017/NÐ-CP".
+    so_hieu = f"{so}/{nam}/{normalize_eth(ma_hieu).upper()}"
     loai_vb = loai_vb_from_ma_hieu(ma_hieu)
     title = f"{loai_vb} {so_hieu}" if loai_vb else so_hieu
     return DocIdentity(
