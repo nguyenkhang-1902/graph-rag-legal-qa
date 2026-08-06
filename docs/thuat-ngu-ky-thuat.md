@@ -109,6 +109,31 @@ Phân loại theo mức độ resolve được, quyết định `target_article_
 - **Tiền lọc (prefilter)**: kiểm tra rẻ trước khi làm phép đắt, với điều kiện **phép rẻ không bao giờ loại oan** kết quả mà phép đắt sẽ tìm được. Ở đây: `ten_thuat_ngu not in text` (so khớp chuỗi ở tầng C, rất nhanh) chạy trước regex word-boundary — an toàn vì regex chỉ *lọc hẹp thêm* những gì `in` đã tìm thấy, không bao giờ tìm ra thứ `in` không thấy.
 - **Padding theo batch**: xem lại mục về `EMBED_BATCH_SIZE`/batching theo tầng độ dài trong `TIEN_DO.md` ĐỢT 5 — cùng một họ vấn đề "một phần tử ngoại lai làm chậm cả lô".
 
+## 🧪 10. Thuật ngữ về chất lượng & an toàn khi sửa dữ liệu thật (bổ sung ĐỢT 12)
+
+- **Mojibake / biến thể encoding**: cùng một chữ bị ghi thành ký tự khác do lỗi chuyển bảng mã. Gặp thật trong corpus: **`ð` (eth, U+00F0)** thay cho **`đ` (U+0111)** — nhìn gần giống nhưng là **hai chữ cái khác nhau**, `ð` không phải "d + dấu" nên `unicodedata.normalize("NFD", ...)` không tách được. Hệ quả: `slugify_doc_name` biến `nð-cp` thành `n-cp` (mất chữ) thay vì `nd-cp`. Bài học chung: khi chuẩn hoá tiếng Việt, đừng chỉ xử lý dấu — phải xử lý cả các chữ cái bị ghi sai bảng mã. Xem `normalize_eth` trong `app/extraction/slugify.py`.
+
+- **Pinning test (test ghim hành vi)**: test viết ra để **cố định một hành vi đã biết là chưa lý tưởng**, kèm ghi chú "nếu sau này quyết sửa thì test này sẽ đỏ". Mục đích không phải khẳng định hành vi đó đúng, mà là **không cho ai đổi nó trong im lặng**. Đã hoạt động đúng ý định trong dự án này: test ghim hạn chế `doc_id` của 4 văn bản `ð` đã đỏ đúng lúc Khang quyết sửa, buộc phải đảo lại tường minh thay vì âm thầm đổi khoá định danh của 119 Article.
+
+- **Điểm mù của dependency injection**: khi mọi test đều **truyền dependency thay thế** (mock/fake) vào, **đường code mặc định không bao giờ được chạy** — test xanh 100% mà implementation thật vẫn sai. Gặp thật: `_delete_from_chroma` import sai tên hàm (`get_or_create_collection` thay vì `get_chroma_collection`), 13/13 test xanh, lỗi chỉ lộ ra khi chạy trên dữ liệu thật. **Cách phòng**: viết thêm ít nhất một test nhắm vào chính đường mặc định — nếu gọi thật quá đắt (mở DB/tải model) thì kiểm bằng `inspect.getsource`/`assert callable(...)`, vẫn tốt hơn không kiểm gì.
+
+- **Idempotent ≠ tự sửa được (self-healing)**: hai tính chất khác nhau, dễ lẫn.
+  - *Idempotent*: chạy lại nhiều lần cho cùng kết quả (vd MERGE).
+  - *Tự sửa được*: chạy lại **khôi phục được trạng thái đúng kể cả khi lần trước chết giữa đường**.
+  Cơ chế "lấy id của Document cũ rồi xoá đúng những id đó khỏi Chroma" là idempotent nhưng **không** tự sửa được: một khi Document cũ đã bị xoá khỏi Neo4j thì lần chạy sau không còn cách nào biết id nào cần xoá. Đây là lý do đổi sang **đối chiếu**.
+
+- **Reconcile (đối chiếu hai nguồn)**: thay vì ghi nhớ "cần xoá những gì", so trực tiếp hai nguồn rồi sửa phần lệch. `reconcile_chroma_with_neo4j`: mọi id trong Chroma không ứng với một Article thật trong Neo4j đều là rác → xoá. Tự sửa được **mọi** kiểu lệch, không phụ thuộc lịch sử. Nguyên tắc chung: **so trạng thái đích với trạng thái hiện tại** đáng tin hơn **ghi nhớ danh sách việc cần làm**.
+
+- **Guard chống thảm hoạ (circuit breaker)**: điều kiện kiểm tra **trước** khi thực hiện thao tác không thể hoàn tác, dừng lại khi số liệu "vô lý" so với kỳ vọng đã đo. Ba guard trong `scripts/migrate_references.py`:
+  1. `real_doc_ids` rỗng → từ chối (nếu không: mọi Document bị coi là cũ và bị xoá sạch).
+  2. Tỉ lệ Document "cũ" > 5% → từ chối (đo thật chỉ 0,12%, nên con số lớn gần như chắc chắn là lỗi lập trình).
+  3. Neo4j trả về 0 Article → từ chối `reconcile` (nếu không: xoá sạch 60k embedding, hàng giờ GPU để tạo lại).
+  Điểm chung: guard so với **số đã đo thật**, không so với ngưỡng cảm tính — và **crash lớn tiếng** thay vì "xử lý tự động cho tiện" (cùng nguyên tắc với `BatchSizeMismatchError`, `ArticleIdCollisionError`).
+
+- **Tính trước số liệu kỳ vọng (expected-state precomputation)**: trước khi chạy một thao tác dài trên dữ liệu thật, tính sẵn kết quả *phải* ra bằng đường độc lập (ở đây: quét tên file bằng Python) để sau đó **verify** thay vì "chạy xong rồi mới biết đúng hay sai". Ví dụ đợt này: tính trước 60,568 Article / 3,201 Document / 8 Article cần backfill — nếu số thật lệch thì biết ngay là có vấn đề.
+
+- **Sửa ở gốc vs sửa ở caller**: khi một phép biến đổi có **một điểm duy nhất** (`slugify_doc_name` là nơi duy nhất biến tên văn bản thành slug), sửa tại đó làm **mọi** đường gọi tự động nhất quán; sửa ở từng caller chỉ sửa một nửa và để lại chính cái bất nhất đang cần sửa. Đây là lý do fix `ð` được đặt trong `slugify.py` chứ không trong `app/ingest.py`.
+
 ---
 
 *File này để tra cứu nhanh khi đọc lại spec/code sau này. Thêm thuật ngữ mới vào đúng mục liên quan khi gặp — không cần tạo file mới trừ khi mục này quá dài.*

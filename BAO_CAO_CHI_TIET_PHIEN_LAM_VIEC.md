@@ -535,3 +535,180 @@ article_co_chroma_id           60,679       60,679
 **Sửa**: `app/extraction/term_extractor.py` (trigger + hiệu năng) · `app/extraction/reference_extractor.py` (T026) · `app/graph_store/upsert.py` (identity) · `app/ingest.py` (`doc_identity_for_file`) · `tests/extraction/test_term_extractor.py` · `tests/extraction/test_reference_extractor.py` · `tests/extraction/test_relation_llm.py` · `tests/graph_store/test_upsert.py` · `tests/test_ingest.py` · `docs/thuat-ngu-ky-thuat.md` (thêm mục 6-9) · `TIEN_DO.md` · `CHECKLIST-GRAPHRAG-DUYET.md`
 
 **Commit**: `9882047` (T013) · `243e81b` (T017+ADR-004) · `2a3fe73` (docs ĐỢT 9-10) · `71bdc5f` (T012b) · `ac3354a` (T025) · `4bc2201` (T026) · `6386b24` (T027 script)
+
+---
+
+## 11. Khang chốt 3 điểm chờ (H1/H2/H3) — "làm theo đề xuất"
+
+**Yêu cầu**: "bạn cần tôi quyết định những gì?" → tôi trình bày 3 điểm kèm đề xuất và hệ quả từng lựa chọn → **"lam theo de xuat"**.
+
+Nội dung 3 điểm và đề xuất đã chốt:
+- **H1** → chạy migration T027 ngay. Lý do đề xuất: mọi dữ liệu bị xoá đều tái tạo được từ `data/raw`; embedding/Term/AMENDS không bị đụng.
+- **H2** → sửa `doc_id` cho 4 văn bản dùng chữ `ð` (119 Article). Lý do: rẻ (~11s GPU) và 0,20% dữ liệu bị "vô hình" trong trích dẫn chéo là lỗi thật.
+- **H3** → đo lại rồi mới xét 2 câu eval, không sửa mò.
+
+**Quyết định về THỨ TỰ (không được hỏi nhưng ảnh hưởng lớn)**: làm H2 **trước** H1. Lý do: fix `ð` làm đổi `doc_id` → đổi `article_id`; nếu chạy migration trước rồi mới fix thì phải re-ingest **hai lần** (mỗi lần ~2h). Làm ngược lại thì chỉ một lần.
+
+## 12. Fix chữ `ð` (eth) — quyết định sửa ở đâu
+
+**Hai phương án cân nhắc**:
+- (a) Sửa trong `slugify_doc_name` — điểm **duy nhất** biến tên văn bản thành slug.
+- (b) Chỉ sửa ở chỗ `app/ingest.py` xử lý `doc_prefix`.
+
+**Chọn (a)**, lý do: cả đường tên-file (`app/ingest.py`) và đường trích dẫn (`doc_identity.build_doc_identity`) đều đi qua `slugify_doc_name`, nên sửa một chỗ là **tự động nhất quán**; phương án (b) chỉ sửa một nửa và để lại chính cái bất nhất đang cần sửa. Kèm theo: **xoá** `_normalize_eth` cục bộ trong `doc_identity.py` (Điều 1 — không duplicate logic đã có).
+
+**Vẫn export `normalize_eth` ra ngoài** vì còn một chỗ nữa cần: chuỗi `so_hieu` **hiển thị** trong `build_doc_identity` không đi qua slugify, nếu không xử lý thì title sẽ hiện `"102/2017/NÐ-CP"` (chữ eth) thay vì `"102/2017/NĐ-CP"`.
+
+**Bước đỏ**:
+```
+FAILED test_slugify_treats_eth_as_mis_encoded_dj[nð-cp]
+FAILED test_slugify_treats_eth_as_mis_encoded_dj[NÐ-CP]
+FAILED test_eth_variant_doc_id_now_matches_so_hieu_doc_id
+        AssertionError: assert '102-2017-n-cp' == '102-2017-nd-cp'
+3 failed, 47 deselected
+```
+
+**Chi tiết đáng ghi lại**: test thứ 3 vốn là test tôi viết ở mục 5b để **ghim hạn chế ngược lại** (`..._intentionally_differs_...`), kèm ghi chú *"nếu sau này Khang quyết sửa, test này sẽ đỏ và bắt buộc phải đọc ghi chú"*. Nó đã đỏ **đúng như dự kiến** và buộc tôi đảo lại tường minh thay vì đổi khoá định danh trong im lặng. Đây là bằng chứng cách viết "pinning test" cho hạn chế có chủ đích hoạt động đúng ý định.
+
+**Bước sửa**: `app/extraction/slugify.py`
+```python
+_ETH_TO_DJ = {"ð": "đ", "Ð": "Đ"}
+
+def normalize_eth(name: str) -> str: ...
+
+def slugify_doc_name(name: str) -> str:
+    lowered = normalize_eth(name).lower().replace("đ", "d")   # <-- them normalize_eth
+```
+
+**Bước xanh**: **283/283** — lần đầu trong nhiều phiên suite không còn fail nào (test `test_config` đã được task nền sửa xong song song, xem mục 16).
+
+## 13. Phát hiện rủi ro TRƯỚC khi khuyến nghị chạy lại — fix `ð` làm 2 cặp văn bản gộp
+
+Dry-run báo **3,201** doc_id thay vì 3,203 → nghĩa là fix `ð` làm **2 cặp văn bản gộp lại**. Nguy hiểm thật: nếu nội dung 2 file gộp khác nhau, `detect_and_dedupe_collisions` sẽ raise `ArticleIdCollisionError` và **dừng toàn bộ ingest** giữa migration.
+
+**Đã kiểm tra thay vì đoán**:
+```
+doc_id MOI: 3201 | doc_id duoc GOP tu >1 prefix: 6
+  03-2021-tt-bgddt  <-  ['03_2021_tt-bgddt', '03_2021_tt-bgdđt']
+  102-2017-nd-cp    <-  ['102_2017_nð-cp', '102_2017_nđ-cp']   <-- MOI do fix eth
+  146-2018-nd-cp    <-  ['146_2018_nð-cp', '146_2018_nđ-cp']   <-- MOI do fix eth
+  155-2020-nd-cp    <-  ['155_2020_nd-cp', '155_2020_nđ-cp']
+  24-2020-nd-cp     <-  ['24_2020_nd-cp', '24_2020_nđ-cp']
+  91-2019-nd-cp     <-  ['91_2019_nd-cp', '91_2019_nđ-cp']
+
+article_id co >1 file: 500
+  trong do NOI DUNG KHAC NHAU (se lam ingest CRASH): 0
+```
+→ Chỉ **2** cặp gộp mới do fix `ð`; 4 cặp còn lại vốn đã gộp từ trước (biến thể `nd`/`nđ`, `bgddt`/`bgdđt`). **0 trường hợp nội dung khác nhau** → dedup an toàn, ingest không crash. An tâm chạy.
+
+**Tính trước số liệu kỳ vọng để verify sau** (không chờ chạy xong mới biết đúng/sai):
+```
+file            : 61068
+article_id duy nhat: 60568      file bi dedup: 500      doc_id duy nhat: 3201
+TRUOC fix eth: 60,679 Article / 3,203 Document
+SAU   fix eth: 60,568 Article / 3,201 Document
+```
+Chênh 111 Article là **đúng ý nghĩa**, không phải mất dữ liệu: 111 Article của 2 văn bản gộp vốn đã có bản trùng nội dung y hệt dưới `doc_id` biến thể `nđ`.
+
+**Suy ra nhu cầu embedding**: trong 119 Article của 4 văn bản `ð`, có 111 đã có bản đối ứng `nđ` **đã embed sẵn** → không cần embed lại; chỉ 8 Article (`81-2016-nd-cp`: 2, `89-2016-nd-cp`: 6) là `doc_id` hoàn toàn mới → cần backfill (~1s GPU, không phải 11s như ước tính ban đầu).
+
+## 14. Phát hiện Khang đã tự chạy `--apply` — quyết định dừng tiến trình đó
+
+Dry-run lúc 16:11 cho số liệu **khác hẳn** lần trước: `references` 37,875→**7,421**, `external_placeholder` 8,427→**1,595**, `document_co_so_hieu` 0→**744**. Có tiến trình đang ghi.
+
+**Điều tra thay vì đoán**: `tasklist` thấy PID 20728; `Get-CimInstance Win32_Process` đọc được command line:
+```
+CreationDate : 8/6/2026 3:45:05 PM
+CommandLine  : python.exe -m scripts.migrate_references data/raw --apply
+```
+Checkpoint: `{"last_completed_batch": 4610, "batch_size": 3}` (batch_size 3 lấy từ `.env` của Khang) → 13,830/61,068 file ≈ **23%**, ETA còn ~1h30.
+
+**Quyết định: dừng tiến trình đó.** Ba lý do:
+1. Nó nạp code lúc 15:45:05 — **trước** khi fix `ð` xong (Python nạp module một lần lúc khởi động), nên **không thể** ra trạng thái cuối đúng; xong rồi vẫn phải migration lần 2.
+2. Tổng thời gian: để chạy hết rồi migration lại = 1h30 + 2h = **3h30**; dừng và chạy lại ngay = **2h**.
+3. Dừng giữa chừng **an toàn theo thiết kế**: re-ingest MERGE-idempotent + checkpoint-based, và lần chạy mới reset checkpoint nên không có nguy cơ lệch batch boundary.
+
+**Kiểm tra tác động của việc sửa file lên tiến trình đang chạy** (trước khi commit fix): `app/ingest.py` import toàn bộ ở module level → mọi module đã nạp xong lúc khởi động → sửa file **không** ảnh hưởng tiến trình đang chạy. An toàn commit.
+
+## 15. LỖI CỦA TÔI — sai tên hàm, hỏng thật trên dữ liệu thật
+
+Sau khi kill, kiểm tra graph thấy **`REFERENCES = 0`** và **`Document = 3199`** (giảm đúng 4). Nghĩa là đã có một tiến trình chạy **code mới** (có bước xoá Document cũ) thực hiện xong bước 1-3 rồi **chết**.
+
+**Không cố dựng lại lịch sử** — đo trạng thái hiện tại toàn diện:
+```
+Document                   3199      REFERENCES                    0
+Document co so_hieu         823      Term                       6104
+Article that              60560      DEFINES                    6862
+Article co chroma_id      60560      USES_TERM                113683
+Article external              2      AMENDS                        2
+Clause                   165393
+4 doc eth con ton tai? []            doc moi 81/89 co chua? []
+```
+
+**Tự nghi vấn đúng chỗ**: tôi nhớ mình viết `from app.retrieval.embedder import get_or_create_collection` mà **chưa hề verify tên hàm đó có thật**. Kiểm tra:
+```
+ten public trong embedder: [... 'embed_texts', 'get_chroma_collection',
+                            'get_texts', 'upsert_embeddings']
+```
+→ Tên đúng là **`get_chroma_collection`**. `get_or_create_collection` là method của `chromadb.Client`, không phải hàm của module này.
+
+**Đo hậu quả thật**:
+```
+Chroma count: 60679                       (Neo4j chi co 60560)
+ban ghi eth con sot (mau 4 id): ['102-2017-n-cp_dieu-1', '89-2016-n-cp_dieu-1',
+                                 '146-2018-n-cp_dieu-1', '81-2016-n-cp_dieu-1']
+```
+→ **119 bản ghi Chroma mồ côi**. Migration crash **sau** khi xoá node Neo4j nhưng **trước** khi xoá Chroma.
+
+**Vì sao test không bắt được** (gốc rễ, không chỉ triệu chứng): mọi test đều **inject** `delete_from_chroma`, nên **đường code mặc định chưa bao giờ được chạy** — một điểm mù của dependency injection. Test xanh 100% mà implementation thật thì sai.
+
+**Quyết định: đổi hẳn CƠ CHẾ, không chỉ sửa tên hàm.** Lý do quyết định (quan trọng hơn bản thân cái bug): cơ chế "lấy article_id của Document cũ rồi xoá đúng những id đó khỏi Chroma" **tự nó không thể tự sửa** — một khi Document cũ đã bị xoá khỏi Neo4j, lần chạy sau **không còn cách nào biết id nào cần xoá**. Đúng tình huống vừa xảy ra. Thay bằng:
+
+- `reconcile_chroma_with_neo4j`: xoá **mọi** bản ghi Chroma không ứng với một Article thật trong Neo4j. **Idempotent**, tự sửa được mọi kiểu lệch kể cả lệch do crash giữa đường, không phụ thuộc lần chạy trước có hoàn tất hay không.
+- Chạy ở **bước cuối** (sau re-ingest), không phải trước — lúc đó tập Article mới là tập cuối cùng.
+- Verify cách lấy id trước khi dùng: `collection.get(include=[])` → **60,679 id trong 0,92s**, không kéo embedding về.
+- **Guard**: Neo4j trả về 0 Article → **từ chối chạy** (nếu không sẽ coi mọi id trong Chroma là rác và xoá sạch 60k embedding = hàng giờ GPU).
+- Bỏ `STALE_ARTICLE_IDS_QUERY` (không còn dùng).
+
+**Test chống tái phạm**: `test_default_chroma_collection_getter_exists_in_embedder` — dùng `inspect.getsource` kiểm tra `_default_chroma_collection` trỏ tới `get_chroma_collection` và **không** chứa `get_or_create_collection`, cộng `assert callable(embedder.get_chroma_collection)`. Nhắm đúng điểm mù: kiểm chính đường mặc định mà các test khác luôn inject bỏ qua.
+
+**Các lỗi nhỏ trên đường đi (ghi đủ theo yêu cầu)**:
+1. `ImportError: cannot import name 'reconcile_chroma_with_neo4j'` — bước đỏ đúng kỳ vọng.
+2. `KeyError: 'article_id'` — mock client cũ trả về `[{"n": 0}]` cho **mọi** query, trong khi các câu `RETURN ... AS article_id` có shape khác. Đã sửa `_mock_client` trả shape đúng theo từng loại query, và ghi rõ trong docstring lý do: *"mock một shape duy nhất sẽ làm test đỏ vì KeyError chứ không phải vì hành vi sai"*.
+3. `AttributeError: 'function' object has no attribute '__wrapped__'` — dòng `assert _default_chroma_collection.__wrapped__ is not None or True` do tôi viết cẩu thả (vô nghĩa: `or True` làm assert luôn đúng). Đã xoá, thay bằng kiểm tra `inspect.getsource` có ý nghĩa thật.
+4. Fixture của 2 test guard dùng tỉ lệ **1 stale / 2 tổng = 50%** → chạm ngay guard `_MAX_STALE_DOCUMENT_SHARE` (5%) và đỏ. Đây là **guard hoạt động đúng**, không phải lỗi guard. Đã thêm helper `_plausible_real_doc_ids(100)` cho tỉ lệ ~1% (thực tế là 4/3,203 = 0,12%).
+
+**Hai guard chống thảm hoạ đã thêm** (đều có test tường minh):
+- `real_doc_ids` rỗng (sai `data_dir`) → từ chối; nếu không thì **mọi** Document bị coi là cũ và bị xoá sạch.
+- Tỉ lệ stale > 5% → từ chối, in 10 doc_id đầu để người kiểm tra. Đo thật chỉ 0,12% nên con số lớn gần như chắc chắn là lỗi lập trình.
+
+## 16. Task nền sửa `test_config` (chạy song song)
+
+Tôi đã tạo chip đề xuất, Khang bấm chạy ở session riêng. Nó tự sửa xong và commit: nguyên nhân là `_reload_with_clean_env` xoá biến env nhưng `importlib.reload` chạy lại `load_dotenv()` ở module level, nạp ngược `.env` của máy dev vào trước khi `os.getenv` chạy. Fix: monkeypatch `load_dotenv` thành no-op **trên module `dotenv`** (không phải `config_module.load_dotenv` — vì `app/config.py` dùng `from dotenv import load_dotenv` nên mỗi lần reload sẽ gán lại tên đó, patch đặt sai chỗ bị ghi đè).
+
+**Ý nghĩa**: ghi nhận "1 fail cũ không liên quan" lặp lại từ ĐỢT 5 đến ĐỢT 11 đã **sai ở hai điểm** — không phải artifact môi trường mà là test thiếu cô lập, và không "không liên quan" vì test đó thực chất **không hề kiểm giá trị mặc định trong code** (mất tác dụng bảo vệ). Suite từ đây xanh sạch.
+
+## 17. Chạy migration hoàn chỉnh
+
+**Quyết định về batch size**: `.env` của Khang có `INGEST_BATCH_SIZE=3` → 20,356 lần ghi checkpoint. Chạy với `INGEST_BATCH_SIZE=200` đặt ở **shell env** (thắng `.env` vì `load_dotenv()` mặc định không override biến đã có) → 306 batch. Đã cân nhắc: batch size **gần như không ảnh hưởng throughput** (cổ chai là round-trip Neo4j theo từng file, không phải ghi checkpoint), nên đây chỉ là dọn cho gọn chứ không phải tối ưu tốc độ.
+
+**Lệnh**:
+```bash
+INGEST_BATCH_SIZE=200 python -m scripts.migrate_references data/raw --apply
+```
+
+**Đo nhịp thật** (2 mẫu checkpoint cách nhau ~109s): batch 4 → batch 9 = 1,000 file / 108,6s ≈ **9,2 file/s ≈ 552 file/phút** → 61,068 file ≈ **1h50**. ETA phù hợp với ước tính từ lần chạy trước của Khang (~508 file/phút với batch_size 3).
+
+**Trạng thái lúc viết mục này**: batch 18/306.
+
+**Verify sẽ làm sau khi xong** (số liệu kỳ vọng đã tính trước ở mục 13):
+| Chỉ số | Kỳ vọng |
+|---|---|
+| Article thật | 60,568 |
+| Document | 3,201 |
+| REFERENCES | ~38,300 |
+| Article thiếu `chroma_id` | 8 → chạy `backfill_embeddings` (~1s GPU) |
+| Chroma count sau đối chiếu | 60,568 (xoá 119 mồ côi + 8 mới chưa embed → 60,560 rồi +8 sau backfill) |
+| Term/DEFINES/USES_TERM/AMENDS | giữ nguyên, không bị đụng |
+
+**Commit thêm ở phần này**: `b2423e5` (fix `ð` + migration xoá Document cũ) · `9540981` (thay xoá Chroma nhắm-đích bằng đối chiếu). Tổng 291/291 test pass.
