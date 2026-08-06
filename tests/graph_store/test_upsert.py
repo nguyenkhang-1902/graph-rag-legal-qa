@@ -29,10 +29,13 @@ from unittest.mock import MagicMock
 
 from app.extraction.reference_extractor import ExtractedReference
 from app.extraction.structure_parser import Article, Chapter, Clause, ParsedDocument
+import pytest
+
 from app.graph_store.upsert import (
     upsert_definitions,
     upsert_document,
     upsert_references,
+    upsert_relations,
     upsert_term_usages,
 )
 
@@ -392,4 +395,124 @@ def test_upsert_term_usages_sends_one_batched_unwind_call_not_one_per_row():
 def test_upsert_term_usages_empty_rows_does_not_call_neo4j():
     client = _make_mock_client()
     upsert_term_usages(client, [])
+    client.run.assert_not_called()
+
+
+# --- upsert_relations (T013: AMENDS/SUPERSEDES/CONFLICTS_WITH) -------------
+
+
+def test_upsert_relations_sends_one_batched_unwind_call_per_type():
+    """Cypher relationship TYPE khong the tham so hoa - moi loai quan he
+    (AMENDS/SUPERSEDES/CONFLICTS_WITH) dung query rieng (literal type,
+    CHON tu whitelist co dinh, khong bao gio string-format tu du lieu
+    nguoi dung - xem upsert.py module docstring Dieu 1). Van UNWIND batch
+    trong MOT loi goi, khong phai N loi goi rieng."""
+    client = _make_mock_client()
+    rows = [
+        {
+            "source_article_id": "luat-xyz_dieu-1",
+            "target_article_id": "luat-doanh-nghiep-2020_dieu-5",
+            "confidence": 0.9,
+            "ly_do": "sửa đổi trực tiếp",
+        }
+    ]
+
+    upsert_relations(client, "AMENDS", rows)
+
+    assert client.run.call_count == 1
+    query, kwargs = client.run.call_args
+    assert "UNWIND $rows" in query[0]
+    assert "MERGE (source)-[r:AMENDS]->(target)" in query[0]
+    assert kwargs["rows"] == rows
+
+
+def test_upsert_relations_supersedes_and_conflicts_with_use_own_relationship_type():
+    client = _make_mock_client()
+    row = [
+        {
+            "source_article_id": "luat-xyz_dieu-1",
+            "target_article_id": "luat-abc_dieu-2",
+            "confidence": 0.8,
+            "ly_do": "x",
+        }
+    ]
+
+    upsert_relations(client, "SUPERSEDES", row)
+    assert "MERGE (source)-[r:SUPERSEDES]->(target)" in client.run.call_args[0][0]
+
+    upsert_relations(client, "CONFLICTS_WITH", row)
+    assert "MERGE (source)-[r:CONFLICTS_WITH]->(target)" in client.run.call_args[0][0]
+
+
+def test_upsert_relations_sets_is_external_via_on_create_for_new_target():
+    """Target Article co the chua ton tai trong corpus (ngoai pham vi da
+    ingest) - cung co che external reference placeholder voi
+    upsert_references (data-model.md), ON CREATE SET is_external = true."""
+    client = _make_mock_client()
+    rows = [
+        {
+            "source_article_id": "luat-xyz_dieu-1",
+            "target_article_id": "luat-ngoai-pham-vi_dieu-9",
+            "confidence": 0.7,
+            "ly_do": "x",
+        }
+    ]
+
+    upsert_relations(client, "AMENDS", rows)
+
+    query = client.run.call_args[0][0]
+    assert "ON CREATE SET target.is_external = true" in query
+    assert "MERGE (target:Article {article_id: row.target_article_id})" in query
+
+
+def test_upsert_relations_matches_existing_source_does_not_merge_it():
+    """Source Article PHAI da ton tai truoc do (cung gia dinh voi
+    upsert_references/upsert_definitions) - dung MATCH, khong MERGE."""
+    client = _make_mock_client()
+    rows = [
+        {
+            "source_article_id": "luat-xyz_dieu-1",
+            "target_article_id": "luat-abc_dieu-2",
+            "confidence": 0.7,
+            "ly_do": "x",
+        }
+    ]
+
+    upsert_relations(client, "AMENDS", rows)
+
+    query = client.run.call_args[0][0]
+    assert "MATCH (source:Article {article_id: row.source_article_id})" in query
+
+
+def test_upsert_relations_sets_confidence_and_ly_do():
+    client = _make_mock_client()
+    rows = [
+        {
+            "source_article_id": "luat-xyz_dieu-1",
+            "target_article_id": "luat-abc_dieu-2",
+            "confidence": 0.7,
+            "ly_do": "x",
+        }
+    ]
+
+    upsert_relations(client, "AMENDS", rows)
+
+    query = client.run.call_args[0][0]
+    assert "r.confidence = row.confidence" in query
+    assert "r.ly_do = row.ly_do" in query
+
+
+def test_upsert_relations_empty_rows_does_not_call_neo4j():
+    client = _make_mock_client()
+    upsert_relations(client, "AMENDS", [])
+    client.run.assert_not_called()
+
+
+def test_upsert_relations_rejects_invalid_relationship_type():
+    """Whitelist co dinh (AMENDS/SUPERSEDES/CONFLICTS_WITH) - relationship_type
+    la INPUT tu caller (co the sai do loi lap trinh o scripts/extract_relations.py),
+    khong duoc am tham chay Cypher sai/rong."""
+    client = _make_mock_client()
+    with pytest.raises(ValueError):
+        upsert_relations(client, "FOO", [{"source_article_id": "a", "target_article_id": "b"}])
     client.run.assert_not_called()

@@ -115,6 +115,34 @@ _UPSERT_USES_TERM_QUERY = (
 )
 
 
+# AMENDS/SUPERSEDES/CONFLICTS_WITH (T013, app/extraction/relation_llm.py):
+# Cypher relationship TYPE khong tham so hoa duoc qua $param - MOT query
+# rieng cho MOI loai, sinh tu whitelist CO DINH (_RELATION_TYPES) tai thoi
+# diem module load, khong bao gio tu gia tri chay-thoi-gian/du lieu nguoi
+# dung (dung nguyen tac "chi gia tri di qua $param" cua module docstring,
+# type la MOT PHAN CO DINH cua cau truc query giong nhan node). Cung co
+# che external reference placeholder voi _REFERENCE_QUERY (ON CREATE SET
+# is_external = true) - target co the ngoai pham vi corpus da ingest.
+# Source PHAI da ton tai (MATCH, khong MERGE - cung gia dinh voi
+# upsert_definitions/upsert_references). confidence/ly_do dung SET (khong
+# phai ON CREATE SET) - LLM co the duoc chay lai voi ket qua tot hon sau
+# nay, muon lan chay MOI NHAT thang the thay vi giu vinh vien gia tri lan
+# dau (khac voi raw_text/dinh_nghia - noi dung do la trich dan/dinh nghia
+# GOC khong doi, con confidence/ly_do la danh gia CO THE cai thien).
+_RELATION_TYPES = ("AMENDS", "SUPERSEDES", "CONFLICTS_WITH")
+_UPSERT_RELATION_QUERIES: dict[str, str] = {
+    relationship_type: (
+        "UNWIND $rows AS row "
+        "MATCH (source:Article {article_id: row.source_article_id}) "
+        "MERGE (target:Article {article_id: row.target_article_id}) "
+        "ON CREATE SET target.is_external = true "
+        f"MERGE (source)-[r:{relationship_type}]->(target) "
+        "SET r.confidence = row.confidence, r.ly_do = row.ly_do"
+    )
+    for relationship_type in _RELATION_TYPES
+}
+
+
 def upsert_definitions(client: Neo4jClient, rows: list[dict]) -> None:
     """Ghi mot batch dinh nghia (data-model.md DEFINES: Article -> Term)
     trong MOT cau UNWIND duy nhat.
@@ -153,6 +181,39 @@ def upsert_term_usages(client: Neo4jClient, rows: list[dict]) -> None:
     if not rows:
         return
     client.run(_UPSERT_USES_TERM_QUERY, rows=rows)
+
+
+def upsert_relations(
+    client: Neo4jClient, relationship_type: str, rows: list[dict]
+) -> None:
+    """Ghi mot batch canh AMENDS/SUPERSEDES/CONFLICTS_WITH (data-model.md,
+    T013 - `app/extraction/relation_llm.py`) trong MOT cau UNWIND duy nhat.
+
+    Moi `row`: {"source_article_id", "target_article_id", "confidence",
+    "ly_do"} - khop `ExtractedRelation` (relation_llm.py) cong
+    `source_article_id` nguon.
+
+    `relationship_type` PHAI la mot trong `_RELATION_TYPES` (AMENDS/
+    SUPERSEDES/CONFLICTS_WITH) - raise `ValueError` ro rang neu khong
+    (bao ve chong loi lap trinh o caller, khong am tham bo qua/chay Cypher
+    sai).
+
+    GIA DINH: `source_article_id` la mot Article DA ton tai truoc do
+    (cung gia dinh voi upsert_references/upsert_definitions) - chi MATCH,
+    khong MERGE. `target_article_id` co the CHUA ton tai (ngoai pham vi
+    corpus da ingest) - dung co che external reference placeholder giong
+    upsert_references (ON CREATE SET is_external = true).
+
+    `rows` rong -> khong goi Neo4j.
+    """
+    if relationship_type not in _UPSERT_RELATION_QUERIES:
+        raise ValueError(
+            f"relationship_type khong hop le: {relationship_type!r} - "
+            f"phai la mot trong {_RELATION_TYPES}"
+        )
+    if not rows:
+        return
+    client.run(_UPSERT_RELATION_QUERIES[relationship_type], rows=rows)
 
 
 def upsert_document(
