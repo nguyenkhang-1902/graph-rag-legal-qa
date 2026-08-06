@@ -46,7 +46,12 @@ def test_supersedes_trigger_with_cross_doc_citation_produces_candidate():
     candidates = find_relation_candidates(text, current_doc_slug="luat-xyz")
 
     assert len(candidates) == 1
-    assert candidates[0].target_article_id == "nghi-dinh-123-2020-nd-cp_dieu-10"
+    # T026 (2026-08-06): doc_id sinh tu SO HIEU, khong con slug ca cum ten
+    # (xem test_khoan_qualified_cross_document_citation trong
+    # test_reference_extractor.py). `find_relation_candidates` tai dung
+    # nguyen `extract_references` (Dieu 1) nen thua huong fix nay - do CHINH
+    # LA muc dich cua viec tai dung, khong phai regression.
+    assert candidates[0].target_article_id == "123-2020-nd-cp_dieu-10"
     assert candidates[0].relationship_type_hint == "SUPERSEDES"
 
 

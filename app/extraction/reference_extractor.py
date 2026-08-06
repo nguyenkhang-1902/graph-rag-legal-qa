@@ -18,6 +18,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
+from app.extraction.doc_identity import build_doc_identity
 from app.extraction.slugify import slugify_doc_name
 
 # Quyet dinh ranh gioi "ten van ban ket thuc o dau" (diem mo ho duoc phep
@@ -41,9 +42,68 @@ from app.extraction.slugify import slugify_doc_name
 #     01/2020/TT-BTC", "Nghi quyet 42/2017/QH14" - ket thuc ngay sau ma
 #     hieu (chu/so/gach ngang, dung truoc khoang trang hoac dau cau tiep
 #     theo).
+#
+# === T026 (2026-08-06): mo rong do phu + doc_id nhat quan ===
+#
+# Khao sat THAT toan bo 61,069 file cho thay pattern truoc ban sua nay bo
+# sot gan het trich dan cheo van ban: 115,563 trich dan "Dieu N" bat duoc
+# nhung CHI 547 (0.47%) resolve duoc sang van ban khac; 115,016 con lai bi
+# coi la self-reference, trong do 14,621 (12.7%) tro toi mot Dieu KHONG TON
+# TAI trong chinh van ban do - bang chung truc tiep cua resolve sai.
+#
+# Ba nguyen nhan (do duoc, khong phai gia dinh):
+#   1. Doi ten van ban dung NGAY sau "Dieu N" - nhung cach viet pho bien
+#      nhat trong corpus that la "Dieu N CUA <Loai>..." (10,745 lan /
+#      5,889 file).
+#   2. Khong cho chu "so" xen giua loai va so hieu - "Nghi dinh SO
+#      99/2015/ND-CP" (6,417 lan / 3,623 file) khong khop.
+#   3. Khong ho tro ten van ban giua loai va so hieu - "Luat Nha o so
+#      65/2014/QH13" (252 lan / 151 file).
+# Ngoai ra "Thong tu lien tich" (218 van ban that) chua bao gio duoc nhan
+# dien - phai dat TRUOC "Thong tu" trong alternation, neu khong "Thong tu"
+# khop truoc roi doi so hieu ngay va that bai o " lien tich".
+_LOAI_VB_PATTERN = (
+    r"Bộ luật|Luật|Pháp lệnh|Nghị định|Nghị quyết|Quyết định"
+    r"|Thông tư liên tịch|Thông tư|Chỉ thị"
+)
+
+# So hieu van ban: "{so}/{nam 4 chu so}/{ma hieu}". Cho phep khoang trang
+# quanh dau "/" (corpus that co ca hai cach viet).
+_SO_HIEU_PATTERN = (
+    r"(?P<so>\d+)\s*/\s*(?P<nam>\d{4})\s*/\s*(?P<ma_hieu>[\w\-]+)"
+)
+
+# HAI nhanh, thu theo DUNG thu tu nay (regex alternation co thu tu):
+#
+#   (1) CO SO HIEU: "<Loai> [ten van ban] [so] {so}/{nam}/{ma hieu}"
+#       -> resolve thanh doc_id CHUAN qua doc_identity.build_doc_identity,
+#          KHOP CHINH XAC doc_id ma app/ingest.py sinh tu TEN FILE. Day la
+#          fix cho bug "external gia" (118/8,427 placeholder) VA cho phan
+#          lon do phu bi bo sot: 6,767 trich dan, trong do 3,275 tro dung
+#          tới Article DA CO trong corpus.
+#
+#   (2) CHI TEN + NAM: "<Loai> <ten van ban> {nam 4 chu so}" (vd "Luat
+#       Doanh nghiep 2020") -> GIU NGUYEN hanh vi cu: slug ca cum ten
+#       ("luat-doanh-nghiep-2020"). KHONG the resolve sang doc_id that vi
+#       moi doc_id that deu la dang so hieu; da thu mine tu dien "ten ->
+#       so hieu" tu chinh corpus va KET LUAN KHONG DUNG DUOC: chi 86 ten
+#       don nghia khop doc that, va cac ten quan trong nhat THUC SU da
+#       nghia ("Luat Chung khoan" co 3 phien ban 2019/2006/2010, "Luat
+#       Doanh nghiep" co 2) - chon bua mot phien ban la sai ve phap ly.
+#       Cac trich dan nay tro thanh external placeholder co ten (thong tin
+#       trung thuc, khong tao edge sai).
+#
+# Ten van ban trong nhanh (1) dung `[^\d,.;]` (khong chua chu so) nen khong
+# the "an" nham sang so hieu cua mot trich dan KE TIEP trong cung cau (xem
+# test_doc_name_does_not_bleed_across_a_following_citation).
 _DOC_NAME_PATTERN = (
-    r"(?:Bộ luật|Luật|Pháp lệnh)\s+[^\d,.;]+?\d{4}"
-    r"|(?:Nghị định|Nghị quyết|Quyết định|Thông tư|Chỉ thị)\s+\d+/\d{4}/[\w\-]+"
+    # (1) co so hieu
+    r"(?:" + _LOAI_VB_PATTERN + r")"
+    + r"(?:\s+[^\d,.;]{1,80}?)?"
+    + r"\s*(?:số\s+)?"
+    + _SO_HIEU_PATTERN
+    # (2) chi ten + nam
+    + r"|(?:" + _LOAI_VB_PATTERN + r")\s+[^\d,.;]+?\d{4}"
 )
 
 # "khoan {so}" phia truoc la tuy chon, chi dung de nhan dien cau trich dan
@@ -51,10 +111,12 @@ _DOC_NAME_PATTERN = (
 # voi "dieu"/"Dieu luat" thuong dung theo nghia doi thuong khac, tranh
 # false positive (xem test_lowercase_dieu_in_everyday_sense_does_not_match,
 # test_dieu_without_trailing_number_does_not_match).
+#
+# "cua" (tuy chon) giua "Dieu N" va ten van ban - xem nguyen nhan 1 o tren.
 _CITATION_RE = re.compile(
     r"(?:khoản\s+\d+\s+)?"
     r"Điều\s+(?P<article_num>\d+)"
-    r"(?:\s+(?P<doc_name>" + _DOC_NAME_PATTERN + r"))?"
+    r"(?:\s+(?:của\s+)?(?P<doc_name>" + _DOC_NAME_PATTERN + r"))?"
 )
 
 
@@ -80,7 +142,21 @@ def extract_references(text: str, current_doc_slug: str) -> list[ExtractedRefere
     for match in _CITATION_RE.finditer(text):
         article_num = match.group("article_num")
         doc_name = match.group("doc_name")
-        doc_slug = slugify_doc_name(doc_name) if doc_name else current_doc_slug
+        # Nhanh (1) - trich dan CO so hieu: doc_id phai duoc dung tu so
+        # hieu qua doc_identity (MOT noi duy nhat tinh doc_id tu so hieu,
+        # dung chung voi app/ingest.py qua ten file - Dieu 1 constitution),
+        # KHONG phai slugify ca cum ten: slugify("Thong tu 19/2016/TT-BXD")
+        # cho "thong-tu-19-2016-tt-bxd" trong khi doc_id THAT la
+        # "19-2016-tt-bxd" -> khong bao gio khop (bug "external gia").
+        if match.group("so") is not None:
+            doc_slug = build_doc_identity(
+                match.group("so"), match.group("nam"), match.group("ma_hieu")
+            ).doc_id
+        elif doc_name:
+            # Nhanh (2) - chi ten + nam: giu nguyen slug ca cum ten.
+            doc_slug = slugify_doc_name(doc_name)
+        else:
+            doc_slug = current_doc_slug
         # Chuan hoa so Dieu qua int() (bo leading zero, vd "05" -> "5") de
         # dong bo CHINH XAC voi cach structure_parser.py xay dung article_id
         # (T008 - quyet dinh khong zero-pad). Neu khong, mot trich dan viet

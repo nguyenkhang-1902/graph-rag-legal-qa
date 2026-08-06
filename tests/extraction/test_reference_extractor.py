@@ -21,6 +21,8 @@ Cac case bat buoc theo tasks.md T006 va task-2b-brief.md:
   thuong (khong viet hoa) dung trong nghia doi thuong khac hoan toan
   nghia phap ly - khong duoc match.
 """
+import pytest
+
 from app.extraction.reference_extractor import ExtractedReference, extract_references
 from app.extraction.slugify import slugify_doc_name
 
@@ -50,11 +52,17 @@ def test_cross_document_citation_with_doc_name(): # case 1
 
 
 def test_khoan_qualified_cross_document_citation(): # case 2
+    # T026 (2026-08-06) DOI ky vong cua test nay tu "nghi-dinh-123-2020-nd-cp"
+    # sang "123-2020-nd-cp": doc_id THAT trong graph sinh tu TEN FILE
+    # ("123_2020_nđ-cp" -> "123-2020-nd-cp", KHONG co tien to loai van ban),
+    # nen chuoi cu khong bao gio khop -> trich dan cheo bi coi la external du
+    # van ban DA duoc ingest. Do that: 118/8,427 placeholder la "external
+    # gia". Xem doc_identity.py.
     text = "...khoản 2 Điều 5 Nghị định 123/2020/NĐ-CP quy định..."
     refs = extract_references(text, current_doc_slug="luat-xyz")
 
     assert len(refs) == 1
-    assert refs[0].target_article_id == "nghi-dinh-123-2020-nd-cp_dieu-5"
+    assert refs[0].target_article_id == "123-2020-nd-cp_dieu-5"
 
 
 def test_same_document_implicit_self_reference(): # case 3
@@ -79,9 +87,11 @@ def test_multiple_citations_returned_in_order_of_appearance(): # case 5
     )
     refs = extract_references(text, current_doc_slug="luat-xyz")
 
+    # Trich dan 1 chi co TEN + NAM (khong so hieu) -> slug theo ten (giu
+    # nguyen hanh vi cu). Trich dan 2 CO so hieu -> doc_id chuan (T026).
     assert [r.target_article_id for r in refs] == [
         "luat-doanh-nghiep-2020_dieu-5",
-        "nghi-dinh-01-2021-nd-cp_dieu-10",
+        "01-2021-nd-cp_dieu-10",
     ]
 
 
@@ -106,11 +116,12 @@ def test_cross_document_citation_bo_luat():
 
 def test_cross_document_citation_thong_tu():
     # Review finding: "Thong tu" khong duoc nhan dien truoc day.
+    # T026: doc_id bo tien to loai van ban (xem test_khoan_qualified_...).
     text = "...được quy định tại Điều 8 Thông tư 01/2020/TT-BTC..."
     refs = extract_references(text, current_doc_slug="luat-xyz")
 
     assert len(refs) == 1
-    assert refs[0].target_article_id == "thong-tu-01-2020-tt-btc_dieu-8"
+    assert refs[0].target_article_id == "01-2020-tt-btc_dieu-8"
 
 
 def test_cross_document_citation_nghi_quyet():
@@ -119,7 +130,113 @@ def test_cross_document_citation_nghi_quyet():
     refs = extract_references(text, current_doc_slug="luat-xyz")
 
     assert len(refs) == 1
-    assert refs[0].target_article_id == "nghi-quyet-42-2017-qh14_dieu-8"
+    assert refs[0].target_article_id == "42-2017-qh14_dieu-8"
+
+
+# --- T026: do phu "cua"/"so" + so hieu -> doc_id nhat quan ----------------
+# Khao sat that toan bo 61,069 file (2026-08-06): regex cu bat 115,563 trich
+# dan "Dieu N" nhung CHI 547 (0.47%) resolve duoc cross-document; 115,016
+# con lai bi coi la self-reference, trong do 14,621 (12.7%) tro toi mot Dieu
+# KHONG TON TAI trong chinh van ban do - bang chung resolve sai. Nguyen nhan:
+# _DOC_NAME_PATTERN cu doi ten van ban dung NGAY sau "Dieu N", khong cho
+# "cua"/"so" xen giua, va khong ho tro "<Loai> <ten> <so hieu>".
+# Sau khi sua: 6,767 trich dan cross-doc co so hieu duoc resolve, trong do
+# 3,275 tro dung tới Article DA CO trong corpus (edge that thay vi self-ref
+# sai), 3,465 thanh external placeholder trung thuc.
+
+
+def test_so_hieu_citation_resolves_to_doc_id_matching_filename():
+    # Nguyen van tu data/raw/01_2012_ttlt-tandtc-vksndtc-btp_16.md.
+    text = "...quy định tại Điều 10 Nghị định số 16/2010/NĐ-CP..."
+    refs = extract_references(text, current_doc_slug="01-2012-ttlt-tandtc")
+
+    assert len(refs) == 1
+    # doc_id THAT sinh tu ten file "16_2010_nđ-cp" -> "16-2010-nd-cp".
+    assert refs[0].target_article_id == "16-2010-nd-cp_dieu-10"
+
+
+def test_cua_connector_between_dieu_and_doc_name_with_so_hieu():
+    # Dang "Dieu N CUA <Loai> so ..." - 10,745 lan / 5,889 file trong corpus
+    # that, truoc T026 bi bo sot HOAN TOAN (resolve thanh self-reference).
+    text = "...sửa đổi Điều 5 của Nghị định số 99/2015/NĐ-CP ngày 20 tháng 10..."
+    refs = extract_references(text, current_doc_slug="19-2016-tt-bxd")
+
+    assert len(refs) == 1
+    assert refs[0].target_article_id == "99-2015-nd-cp_dieu-5"
+
+
+def test_cua_connector_with_name_and_year_only():
+    # "cua" cung phai hoat dong voi dang TEN + NAM (khong so hieu).
+    text = "...theo Điều 5 của Luật Doanh nghiệp 2020..."
+    refs = extract_references(text, current_doc_slug="luat-xyz")
+
+    assert len(refs) == 1
+    assert refs[0].target_article_id == "luat-doanh-nghiep-2020_dieu-5"
+
+
+def test_doc_name_between_loai_vb_and_so_hieu():
+    # Dang "<Loai> <ten van ban> so <so hieu>" (vd "Luat Nha o so
+    # 65/2014/QH13") - 252 lan / 151 file. Regex cu khong khop nhanh nao.
+    text = "...quy định tại Điều 5 Luật Nhà ở số 65/2014/QH13..."
+    refs = extract_references(text, current_doc_slug="19-2016-tt-bxd")
+
+    assert len(refs) == 1
+    assert refs[0].target_article_id == "65-2014-qh13_dieu-5"
+
+
+def test_thong_tu_lien_tich_is_recognized_before_thong_tu():
+    # 218 van ban that trong corpus la Thong tu lien tich. Neu "Thong tu"
+    # duoc thu TRUOC trong alternation, no khop truoc roi doi ngay so hieu
+    # -> that bai o " lien tich" va ca trich dan bi bo sot.
+    text = "...tại Điều 16 Thông tư liên tịch số 01/2012/TTLT-TANDTC-VKSNDTC-BTP..."
+    refs = extract_references(text, current_doc_slug="luat-xyz")
+
+    assert len(refs) == 1
+    assert refs[0].target_article_id == "01-2012-ttlt-tandtc-vksndtc-btp_dieu-16"
+
+
+def test_so_hieu_leading_zero_is_preserved_in_doc_id():
+    # 592/3,203 doc_id that co so bat dau bang 0 (vd "05_2017_tt-btnmt"), va
+    # do that tren 6,767 trich dan cho thay 0 truong hop can chuan hoa
+    # leading zero. Bo leading zero se sinh "5-2017-tt-btnmt" - khong bao gio
+    # khop doc_id that. (Khac voi SO DIEU, van chuan hoa qua int() - xem
+    # test_article_number_normalization_strips_leading_zero.)
+    text = "...tại Điều 3 Thông tư số 05/2017/TT-BTNMT..."
+    refs = extract_references(text, current_doc_slug="luat-xyz")
+
+    assert refs[0].target_article_id == "05-2017-tt-btnmt_dieu-3"
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "...được quy định tại Điều 5 của Luật này...",
+        "...được quy định tại Điều 5 Nghị định này...",
+        "...được quy định tại Điều 5 Thông tư này...",
+    ],
+)
+def test_loai_vb_followed_by_nay_is_still_self_reference(text):
+    # "Luat/Nghi dinh/Thong tu NAY" = chinh van ban dang doc -> self
+    # reference DUNG, khong duoc coi la trich dan cheo. Ca hai nhanh moi deu
+    # doi so hieu HOAC nam 4 chu so, nen "nay" tu nhien khong khop.
+    refs = extract_references(text, current_doc_slug="luat-xyz")
+
+    assert len(refs) == 1
+    assert refs[0].target_article_id == "luat-xyz_dieu-5"
+
+
+def test_doc_name_does_not_bleed_across_a_following_citation():
+    # HAN CHE DA BIET, ghim co chu dich: "Dieu 5 Luat Nha o" (ten KHONG co
+    # nam, KHONG co so hieu) khong resolve duoc -> roi ve self-reference
+    # (van sai, nhung khong duoc "an" sang so hieu cua trich dan KE TIEP,
+    # dieu do se tao edge sai NGHIEM TRONG hon).
+    text = "Điều 5 Luật Nhà ở và Điều 10 Nghị định số 99/2015/NĐ-CP."
+    refs = extract_references(text, current_doc_slug="luat-xyz")
+
+    assert [r.target_article_id for r in refs] == [
+        "luat-xyz_dieu-5",
+        "99-2015-nd-cp_dieu-10",
+    ]
 
 
 def test_article_number_normalization_strips_leading_zero(): # task-2c finding 2
