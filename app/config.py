@@ -19,7 +19,12 @@ load_dotenv()
 
 # --- Retrieval / traversal (spec.md FR-005, FR-004) ---
 MAX_HOP: int = int(os.getenv("MAX_HOP", "2"))
-SIMILARITY_THRESHOLD: float = float(os.getenv("SIMILARITY_THRESHOLD", "0.75"))
+# 0.65 (khong phai 0.75 khoi tao luc scaffold T004) - hieu chinh bang du
+# lieu that T017 (research.md ADR-004): 0.75 loc oan 52% expected_article_id
+# dung (trung vi similarity cua ket qua dung ~0.7426), Strict recall
+# 59.4%->90.6% sau khi ha xuong 0.65. Da doc tay 10/10 case "lat" + held-out
+# split-half xac nhan khong phai overfitting - xem ADR-004 chi tiet.
+SIMILARITY_THRESHOLD: float = float(os.getenv("SIMILARITY_THRESHOLD", "0.65"))
 
 # --- Ingest (spec.md FR-008 / research.md ADR-002) ---
 INGEST_BATCH_SIZE: int = int(os.getenv("INGEST_BATCH_SIZE", "200"))

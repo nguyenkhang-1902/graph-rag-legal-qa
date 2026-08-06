@@ -10,9 +10,12 @@ thoi, doc lap (tmp_path, TEN COLLECTION RIENG) de xac nhan cong thuc
 gia dinh code. Test nay KHONG dung `config.CHROMA_PERSIST_DIR` that (khong
 dung/ghi vao chroma_db/ that dang duoc backfill that o may nay).
 
-SIMILARITY_THRESHOLD mac dinh (config.py) la 0.75 - cac test mock duoi day
-dung gia tri nay lam moc, voi distance/similarity cu the da tinh tay trong
-comment o moi test.
+Cac test mock duoi day GHIM TUONG MINH SIMILARITY_THRESHOLD=0.75 qua
+monkeypatch (khong dua vao gia tri mac dinh hien tai cua config.py, von
+co the doi theo thoi gian khi hieu chinh bang du lieu that - xem
+research.md ADR-004, tung gay 1 test fail vi ngam dinh 0.75 la mac dinh
+"vinh vien") - distance/similarity cu the da tinh tay trong comment o moi
+test, doc lap voi gia tri mac dinh THAT dang dung trong production.
 """
 import pytest
 from unittest.mock import MagicMock
@@ -41,10 +44,10 @@ def _mock_chroma_query_result(ids: list[str], distances: list[float]) -> dict:
 
 
 def test_returns_only_results_above_threshold_with_correct_similarity(monkeypatch):
-    """SIMILARITY_THRESHOLD mac dinh = 0.75.
-    distance=0.1 -> similarity = 1 - 0.1 = 0.9  (>= 0.75, GIU LAI)
+    """distance=0.1 -> similarity = 1 - 0.1 = 0.9  (>= 0.75, GIU LAI)
     distance=0.4 -> similarity = 1 - 0.4 = 0.6  (< 0.75, LOC BO)
     """
+    monkeypatch.setattr(config, "SIMILARITY_THRESHOLD", 0.75)
     monkeypatch.setattr(entry_point, "embed_texts", lambda texts: [[0.1, 0.2]])
     mock_collection = MagicMock()
     mock_collection.query.return_value = _mock_chroma_query_result(
@@ -75,6 +78,7 @@ def test_empty_chroma_collection_returns_empty_list(monkeypatch):
 def test_all_results_below_threshold_returns_empty_list(monkeypatch):
     """distance=0.5 -> similarity=0.5, distance=0.9 -> similarity=0.1 - ca
     hai deu < SIMILARITY_THRESHOLD (0.75)."""
+    monkeypatch.setattr(config, "SIMILARITY_THRESHOLD", 0.75)
     monkeypatch.setattr(entry_point, "embed_texts", lambda texts: [[0.1, 0.2]])
     mock_collection = MagicMock()
     mock_collection.query.return_value = _mock_chroma_query_result(
@@ -97,6 +101,7 @@ def test_results_sorted_by_similarity_descending_even_if_input_order_differs(
     distance=0.2 -> similarity=0.8
     distance=0.05 -> similarity=0.95
     """
+    monkeypatch.setattr(config, "SIMILARITY_THRESHOLD", 0.75)
     monkeypatch.setattr(entry_point, "embed_texts", lambda texts: [[0.1, 0.2]])
     mock_collection = MagicMock()
     mock_collection.query.return_value = _mock_chroma_query_result(
@@ -136,9 +141,10 @@ def test_real_model_and_chroma_confirms_distance_to_similarity_conversion(
     Xac nhan cu the: upsert 2 cau giong het nhau (article giong query) ->
     query lai bang chinh cau do -> distance phai ~0.0 -> similarity ~1.0.
     Upsert them 1 cau hoan toan khac chu de -> similarity cua no phai thap
-    hon nhieu (< 0.75, bi loc boi threshold). Day la bang chung THAT cho
-    cong thuc similarity = 1 - distance tren chromadb==1.5.9, khong phai
-    gia dinh (xem module docstring cua entry_point.py)."""
+    hon nhieu (< threshold, bi loc boi threshold). Day la bang chung THAT
+    cho cong thuc similarity = 1 - distance tren chromadb==1.5.9, khong
+    phai gia dinh (xem module docstring cua entry_point.py)."""
+    monkeypatch.setattr(config, "SIMILARITY_THRESHOLD", 0.75)
     monkeypatch.setattr(config, "CHROMA_PERSIST_DIR", str(tmp_path / "chroma_test"))
     monkeypatch.setattr(config, "CHROMA_COLLECTION_NAME", "legal_articles_t010_smoke")
 
@@ -160,5 +166,5 @@ def test_real_model_and_chroma_confirms_distance_to_similarity_conversion(
     # phai rat gan 0 -> similarity rat gan 1.0 (cho phep sai so nho do
     # xap xi so hoc cua HNSW/embedding, khong phai bang chinh xac tuyet doi)
     assert matched.similarity > 0.99
-    # van ban khac chu de hoan toan khong duoc vuot threshold mac dinh (0.75)
+    # van ban khac chu de hoan toan khong duoc vuot threshold da ghim (0.75)
     assert "dieu_khac" not in article_ids

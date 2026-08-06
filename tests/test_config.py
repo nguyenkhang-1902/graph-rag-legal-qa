@@ -40,7 +40,7 @@ def test_defaults_load_correctly(monkeypatch):
 
     assert cfg.MAX_HOP == 2
     assert isinstance(cfg.MAX_HOP, int)
-    assert cfg.SIMILARITY_THRESHOLD == 0.75
+    assert cfg.SIMILARITY_THRESHOLD == 0.65  # research.md ADR-004 (hieu chinh tu 0.75)
     assert isinstance(cfg.SIMILARITY_THRESHOLD, float)
     assert cfg.INGEST_BATCH_SIZE == 200
     assert isinstance(cfg.INGEST_BATCH_SIZE, int)
