@@ -34,7 +34,7 @@
 
 ## ✅ H1/H2/H3 — Khang chốt "làm theo đề xuất" (2026-08-06)
 
-- [x] **H1 → CHẠY.** Đang chạy `INGEST_BATCH_SIZE=200 python -m scripts.migrate_references data/raw --apply`. Bước 1-3 xong (REFERENCES xoá sạch, 4 Document `ð` xoá, placeholder mồ côi xoá — giữ 2 placeholder là đích AMENDS). ETA ~1h50 (đo thật 552 file/phút).
+- [x] **H1 → CHẠY.** Bước 1-4 xong dứt điểm (REFERENCES xoá sạch, 4 Document `ð` xoá, placeholder mồ côi xoá — giữ 2 placeholder là đích AMENDS, reset checkpoint). Bước 5 (re-ingest) **bị ngắt ở ~batch 96/306 lúc 17:00 2026-08-06** vì Khang tan làm — **an toàn theo thiết kế** (checkpoint ghi mỗi ~22s, MERGE idempotent). Tiếp tục bằng `python -m scripts.migrate_references data/raw --apply --resume` (xem TIEN_DO.md mục 1 — KHÔNG được chạy `--apply` thiếu `--resume`). Đã sửa `.env` `INGEST_BATCH_SIZE=3`→**200** để khớp checkpoint.
 - [x] **H2 → SỬA.** Fix tại gốc `slugify_doc_name` (`normalize_eth`) chứ không sửa ở caller — đó là điểm duy nhất biến tên văn bản thành slug nên cả 2 đường tự động nhất quán. Phát hiện thêm khi kiểm tra: fix này làm **2 cặp văn bản gộp lại** (`102-2017-nd-cp`, `146-2018-nd-cp`), đã xác nhận **0 trường hợp nội dung khác nhau** nên dedup an toàn. Số Article giảm 60,679 → **60,568** là đúng ý nghĩa (111 Article đó vốn đã có bản trùng y hệt). Chỉ **8 Article** cần backfill embedding, không phải 119.
 - [x] **H3 → ĐO LẠI RỒI XÉT.** Chưa sửa gì cho `mh-014`/`mh-030`; sẽ chạy `eval_graph_recall.py` sau migration, chỉ can thiệp nếu thật sự fail.
 

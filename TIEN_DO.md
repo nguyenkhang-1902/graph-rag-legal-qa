@@ -146,7 +146,27 @@
 
 ## 📍 Việc cần làm tiếp theo (đọc phần này trước khi bắt đầu phiên mới)
 
-1. ⏳ **Migration T027 ĐANG CHẠY** (xem ĐỢT 12) — chờ xong rồi verify theo bảng số liệu kỳ vọng đã tính trước: **60,568 Article / 3,201 Document / ~38,300 REFERENCES**, và **8 Article thiếu `chroma_id`** → chạy `python -m scripts.backfill_embeddings data/raw` (~1s GPU). Nếu số liệu lệch bảng này thì PHẢI điều tra, không bỏ qua.
+1. ⏳ **MIGRATION T027 BỊ NGẮT GIỮA CHỪNG — TIẾP TỤC BẰNG `--resume`** (dừng lúc ~batch 96/306, 2026-08-06 17:00, Khang tan làm).
+
+   **Mở Docker Desktop trước** (Neo4j phải reachable), rồi chạy ĐÚNG lệnh này:
+   ```bash
+   python -m scripts.migrate_references data/raw --apply --resume
+   ```
+
+   🔴 **TUYỆT ĐỐI KHÔNG chạy `--apply` mà thiếu `--resume`**: bước 1-4 của migration là XOÁ + reset checkpoint, nên lệnh thiếu cờ sẽ **xoá sạch REFERENCES đã tạo được và làm lại từ đầu** (~2h). `--resume` bỏ qua bước 1-4, chỉ chạy tiếp re-ingest từ checkpoint + đối chiếu Chroma. Có guard: `--resume` mà không có checkpoint thì script tự từ chối chạy.
+
+   ✅ `.env` đã được sửa `INGEST_BATCH_SIZE=3` → **200** (2026-08-06) để khớp `batch_size` trong checkpoint — nếu để 3 thì `run_ingest` raise `BatchSizeMismatchError` và từ chối chạy (cơ chế T009d, đúng theo thiết kế). **Đừng đổi lại giá trị này giữa 2 lần chạy.**
+
+   **Sau khi migration xong, verify theo bảng số liệu kỳ vọng đã tính trước** — lệch thì PHẢI điều tra, không bỏ qua:
+
+   | Chỉ số | Kỳ vọng |
+   |---|---|
+   | Article thật | **60,568** (giảm 111 so với 60,679 là ĐÚNG — xem ĐỢT 12) |
+   | Document | **3,201** |
+   | REFERENCES | **~38,300** |
+   | Article thiếu `chroma_id` | **8** → chạy `python -m scripts.backfill_embeddings data/raw` (~1s GPU) |
+   | Chroma count sau đối chiếu | khớp số Article thật |
+   | Term / DEFINES / USES_TERM / AMENDS | giữ nguyên (6,104 / ~6,862 / ~113,683 / 2) |
 2. **Sau migration: chạy lại T017** (`python -m scripts.eval_graph_recall`) — baseline cũ 90.6%/93.1%/0.917 đo trên graph TRƯỚC T026, không còn dùng để so sánh trực tiếp được. Kiểm luôn 2 câu `mh-014`/`mh-030` (xem ĐỢT 11): nếu fail thì mới xét sửa metadata/loại câu, không sửa trước khi biết.
 3. **T018 — Khang đã chốt hướng (2026-08-06)**: (a) so Graph RAG với baseline Hybrid+Reranker cũ **ở quy mô 10k**, ghi rõ lệch quy mô là hạn chế đã biết; (b) **tự đo baseline Hybrid+Reranker MỚI ở 67k trong dự án này**, ghi rõ số liệu này đo ở dự án mới và trình bày là **phát triển thêm** so với dự án cũ (không ép baseline cũ chạy ở 67k). → G1 trong checklist đã chốt.
 4. **Chạy full corpus `extract_relations.py`** (T013) — trước đây chờ 2 điểm quyết đã xong (cả hai đều đã sửa ở T026). Lưu ý độ phủ candidate giờ sẽ **cao hơn nhiều** so với ước tính ~40 candidate/61k file cũ, vì nguyên nhân gốc (regex không khớp "của"/"số") đã được sửa — cần đo lại thay vì dùng con số cũ.
