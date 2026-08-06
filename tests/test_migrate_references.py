@@ -28,6 +28,7 @@ import pytest
 from scripts.migrate_references import (
     DELETE_ORPHAN_EXTERNAL_ARTICLES_QUERY,
     DELETE_REFERENCES_QUERY,
+    reconcile_chroma_with_neo4j,
     run_migration,
 )
 
@@ -71,6 +72,7 @@ def test_dry_run_sends_no_delete_or_write():
         apply=False,
         reingest=reingest,
         reset_checkpoint=reset,
+        reconcile_chroma=lambda _c: 0,
         real_doc_ids={"co-that"},
         stale_doc_ids=[],
     )
@@ -94,6 +96,7 @@ def test_dry_run_still_counts_current_state_for_the_report():
         apply=False,
         reingest=MagicMock(),
         reset_checkpoint=MagicMock(),
+        reconcile_chroma=lambda _c: 0,
         real_doc_ids={"co-that"},
         stale_doc_ids=[],
     )
@@ -137,6 +140,7 @@ def test_apply_runs_steps_in_required_order():
         apply=True,
         reingest=reingest,
         reset_checkpoint=reset,
+        reconcile_chroma=lambda _c: 0,
         real_doc_ids=_plausible_real_doc_ids(),
         stale_doc_ids=["cu-khong-con"],
     )
@@ -167,6 +171,7 @@ def test_stale_documents_are_deleted_with_their_whole_subtree():
         apply=True,
         reingest=MagicMock(),
         reset_checkpoint=MagicMock(),
+        reconcile_chroma=lambda _c: 0,
         real_doc_ids=_plausible_real_doc_ids() | {"102-2017-nd-cp"},
         stale_doc_ids=["102-2017-n-cp"],
     )
@@ -182,32 +187,97 @@ def test_stale_documents_are_deleted_with_their_whole_subtree():
         assert label in q, f"query xoa Document cu khong xu ly {label}"
 
 
-def test_stale_article_ids_are_removed_from_chroma():
+def test_reconcile_deletes_chroma_ids_absent_from_neo4j():
+    # Co che DOI CHIEU (thay cho xoa nham-dich): moi id trong Chroma khong
+    # ung voi mot Article that trong Neo4j deu la rac -> xoa. Tu sua duoc
+    # MOI kieu lech, ke ca lech do mot lan chay truoc bi crash giua duong.
+    class FakeCollection:
+        def __init__(self):
+            self.deleted: list[list[str]] = []
+
+        def get(self, include=None):
+            return {"ids": ["con-dung_dieu-1", "rac_dieu-1", "rac_dieu-2"]}
+
+        def delete(self, ids):
+            self.deleted.append(list(ids))
+
+    col = FakeCollection()
     client = _mock_client()
     client.run.side_effect = lambda q, **p: (
-        [{"article_id": "102-2017-n-cp_dieu-1"}, {"article_id": "102-2017-n-cp_dieu-2"}]
-        if "article_id" in q and "DELETE" not in q.upper()
-        else [{"n": 0}]
-    )
-    chroma_deleted: list[list[str]] = []
-
-    run_migration(
-        "data/raw",
-        client=client,
-        apply=True,
-        reingest=MagicMock(),
-        reset_checkpoint=MagicMock(),
-        real_doc_ids=_plausible_real_doc_ids() | {"102-2017-nd-cp"},
-        stale_doc_ids=["102-2017-n-cp"],
-        delete_from_chroma=lambda ids: chroma_deleted.append(list(ids)),
+        [{"article_id": "con-dung_dieu-1"}] if "article_id" in q else [{"n": 0}]
     )
 
-    assert chroma_deleted == [["102-2017-n-cp_dieu-1", "102-2017-n-cp_dieu-2"]]
+    n = reconcile_chroma_with_neo4j(client, collection=col)
+
+    assert n == 2
+    assert col.deleted == [["rac_dieu-1", "rac_dieu-2"]]
 
 
-def test_no_stale_documents_means_no_stale_delete_and_no_chroma_touch():
+def test_reconcile_is_noop_when_chroma_and_neo4j_agree():
+    class FakeCollection:
+        def __init__(self):
+            self.deleted = []
+
+        def get(self, include=None):
+            return {"ids": ["a_dieu-1"]}
+
+        def delete(self, ids):
+            self.deleted.append(list(ids))
+
+    col = FakeCollection()
     client = _mock_client()
-    chroma_deleted: list[list[str]] = []
+    client.run.side_effect = lambda q, **p: (
+        [{"article_id": "a_dieu-1"}] if "article_id" in q else [{"n": 0}]
+    )
+
+    assert reconcile_chroma_with_neo4j(client, collection=col) == 0
+    assert col.deleted == []
+
+
+def test_reconcile_refuses_when_neo4j_returns_no_articles():
+    # Neu Neo4j tra ve 0 Article (loi ket noi/query sai), MOI id trong Chroma
+    # se bi coi la rac -> xoa sach 60k embedding (hang gio GPU de tao lai).
+    # Phai tu choi.
+    class FakeCollection:
+        def get(self, include=None):
+            return {"ids": ["a_dieu-1", "a_dieu-2"]}
+
+        def delete(self, ids):  # pragma: no cover - khong duoc goi
+            raise AssertionError("khong duoc xoa gi")
+
+    client = _mock_client()
+    client.run.side_effect = lambda q, **p: [] if "article_id" in q else [{"n": 0}]
+
+    with pytest.raises(RuntimeError, match="khong co Article nao"):
+        reconcile_chroma_with_neo4j(client, collection=FakeCollection())
+
+
+def test_default_chroma_collection_getter_exists_in_embedder():
+    # BUG THAT tu gay ra (2026-08-06): `_delete_from_chroma` cu import
+    # `get_or_create_collection` tu app.retrieval.embedder - TEN KHONG TON
+    # TAI (ten dung la `get_chroma_collection`). Moi test deu inject
+    # `delete_from_chroma`/`collection` nen implementation THAT chua bao gio
+    # duoc chay -> loi chi lo ra khi chay migration tren du lieu that, SAU khi
+    # da xoa node Neo4j nhung TRUOC khi xoa ban ghi Chroma (de lai 119 ban ghi
+    # mo coi). Test nay ghim: ten ham mac dinh phai ton tai that.
+    import app.retrieval.embedder as embedder
+
+    from scripts.migrate_references import _default_chroma_collection
+
+    import inspect
+
+    # Ten ham PHAI ton tai that trong embedder.
+    assert callable(embedder.get_chroma_collection)
+    # Va `_default_chroma_collection` phai tro dung toi ten do. Kiem tra bang
+    # doc source (khong GOI ham) - goi that se mo Chroma tren dia, khong phu
+    # hop cho unit test.
+    src = inspect.getsource(_default_chroma_collection)
+    assert "get_chroma_collection" in src
+    assert "get_or_create_collection" not in src
+
+
+def test_no_stale_documents_means_no_stale_delete_query():
+    client = _mock_client()
 
     run_migration(
         "data/raw",
@@ -215,12 +285,17 @@ def test_no_stale_documents_means_no_stale_delete_and_no_chroma_touch():
         apply=True,
         reingest=MagicMock(),
         reset_checkpoint=MagicMock(),
+        reconcile_chroma=lambda _c: 0,
         real_doc_ids={"102-2017-nd-cp"},
         stale_doc_ids=[],
-        delete_from_chroma=lambda ids: chroma_deleted.append(list(ids)),
     )
 
-    assert chroma_deleted == []
+    stale_queries = [
+        q
+        for q in _queries(client)
+        if "DELETE" in q.upper() and "REFERENCES" not in q and "is_external" not in q
+    ]
+    assert stale_queries == []
 
 
 # --- Chan tham hoa: khong bao gio xoa toan bo graph ----------------------
@@ -238,6 +313,7 @@ def test_refuses_to_run_when_no_real_doc_ids_found():
             apply=True,
             reingest=MagicMock(),
             reset_checkpoint=MagicMock(),
+            reconcile_chroma=lambda _c: 0,
             real_doc_ids=set(),
             stale_doc_ids=["a", "b"],
         )
@@ -258,6 +334,7 @@ def test_refuses_to_delete_an_implausibly_large_share_of_documents():
             apply=True,
             reingest=MagicMock(),
             reset_checkpoint=MagicMock(),
+            reconcile_chroma=lambda _c: 0,
             real_doc_ids=real,
             stale_doc_ids=stale,
         )
@@ -293,6 +370,7 @@ def test_apply_passes_data_dir_through_to_reingest():
         apply=True,
         reingest=reingest,
         reset_checkpoint=MagicMock(),
+        reconcile_chroma=lambda _c: 0,
         real_doc_ids={"co-that"},
         stale_doc_ids=[],
     )
@@ -310,6 +388,7 @@ def test_run_migration_returns_before_and_after_counts():
         apply=True,
         reingest=MagicMock(),
         reset_checkpoint=MagicMock(),
+        reconcile_chroma=lambda _c: 0,
         real_doc_ids={"co-that"},
         stale_doc_ids=[],
     )
@@ -331,6 +410,7 @@ def test_reingest_failure_propagates_and_is_not_swallowed():
             apply=True,
             reingest=MagicMock(side_effect=RuntimeError("ingest that bai")),
             reset_checkpoint=MagicMock(),
+            reconcile_chroma=lambda _c: 0,
             real_doc_ids={"co-that"},
             stale_doc_ids=[],
         )

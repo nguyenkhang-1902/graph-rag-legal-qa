@@ -108,14 +108,6 @@ DELETE_STALE_DOCUMENT_SUBTREE_QUERY = (
     "DETACH DELETE descendant, d"
 )
 
-# article_id cua cac Article thuoc Document cu - can TRUOC khi xoa node, de
-# xoa dung cac ban ghi tuong ung trong Chroma (id trong Chroma = article_id).
-STALE_ARTICLE_IDS_QUERY = (
-    "UNWIND $doc_ids AS doc_id "
-    "MATCH (d:Document {doc_id: doc_id})<-[:BELONGS_TO*1..2]-(a:Article) "
-    "RETURN DISTINCT a.article_id AS article_id"
-)
-
 # Nguong chan tham hoa: do that chi 4/3,203 van ban (0.12%) can xoa. Neu ty
 # le vuot nguong nay, gan nhu chac chan la loi lap trinh (vd doi cach sinh
 # doc_id lam lech ca corpus) chu khong phai y dinh - dung lai, bat nguoi
@@ -189,19 +181,69 @@ def stale_doc_ids_in_graph(client: Neo4jClient, real_doc_ids: set[str]) -> list[
     )
 
 
-def _delete_from_chroma(article_ids: list[str]) -> None:
-    """Xoa cac ban ghi Chroma co id nam trong `article_ids` (id trong Chroma
-    CHINH LA article_id - xem scripts/backfill_embeddings.py).
+def _default_chroma_collection():
+    """Chroma collection that (import TRONG ham: dry-run khong bao gio can
+    toi Chroma, va test luon tu truyen `collection` nen khong keo theo
+    chromadb/torch)."""
+    from app.retrieval.embedder import get_chroma_collection
 
-    Import chromadb NGAY TRONG ham (khong o dau module): migration chay duoc
-    ma khong keo theo phu thuoc nay khi caller tu truyen `delete_from_chroma`
-    (vd test), va dry-run khong bao gio can toi Chroma."""
-    if not article_ids:
-        return
-    from app.retrieval.embedder import get_or_create_collection
+    return get_chroma_collection()
 
-    get_or_create_collection().delete(ids=article_ids)
-    logger.info("da xoa %d ban ghi khoi Chroma", len(article_ids))
+
+# id trong Chroma CHINH LA article_id (xem scripts/backfill_embeddings.py).
+_ALL_REAL_ARTICLE_IDS_QUERY = (
+    "MATCH (a:Article) WHERE coalesce(a.is_external, false) = false "
+    "RETURN a.article_id AS article_id"
+)
+
+
+def reconcile_chroma_with_neo4j(
+    client: Neo4jClient, *, collection=None
+) -> int:
+    """Xoa moi ban ghi Chroma khong ung voi mot Article THAT trong Neo4j.
+    Tra ve so ban ghi da xoa.
+
+    VI SAO DOI CHIEU CHU KHONG XOA NHAM-DICH: ban dau buoc nay la "lay
+    article_id cua cac Document cu roi xoa dung nhung id do khoi Chroma".
+    Cach do MONG MANH va da that su gay hong (2026-08-06): implementation
+    mac dinh import sai ten ham (`get_or_create_collection` thay vi
+    `get_chroma_collection`) nen crash SAU khi da xoa node Neo4j nhung TRUOC
+    khi xoa Chroma -> de lai 119 ban ghi mo coi, va vi Document cu da bi xoa
+    khoi Neo4j thi lan chay sau KHONG CON cach nao biet id nao can xoa.
+    Doi chieu thi TU SUA duoc moi kieu lech, chay bao nhieu lan cung an toan
+    (idempotent), khong phu thuoc vao viec lan chay truoc co hoan tat hay
+    khong.
+
+    GUARD: neu Neo4j tra ve 0 Article (loi ket noi / query sai), MOI id
+    trong Chroma se bi coi la rac -> xoa sach 60k embedding (hang gio GPU
+    de tao lai). TU CHOI chay trong truong hop do.
+    """
+    if collection is None:
+        collection = _default_chroma_collection()
+
+    real_ids = {row["article_id"] for row in client.run(_ALL_REAL_ARTICLE_IDS_QUERY)}
+    if not real_ids:
+        raise RuntimeError(
+            "Neo4j khong co Article nao - neu tiep tuc, MOI ban ghi trong "
+            "Chroma se bi coi la rac va bi xoa sach (mat toan bo embedding, "
+            "hang gio GPU de tao lai). TU CHOI chay."
+        )
+
+    # include=[] -> chi lay id, khong keo embedding ve (do that: 60,679 id
+    # trong ~0.9s).
+    chroma_ids = collection.get(include=[])["ids"]
+    orphan_ids = [cid for cid in chroma_ids if cid not in real_ids]
+
+    logger.info(
+        "doi chieu Chroma<->Neo4j: %d ban ghi Chroma, %d Article that, "
+        "%d ban ghi mo coi se bi xoa",
+        len(chroma_ids),
+        len(real_ids),
+        len(orphan_ids),
+    )
+    if orphan_ids:
+        collection.delete(ids=orphan_ids)
+    return len(orphan_ids)
 
 
 def _check_stale_deletion_is_plausible(
@@ -237,7 +279,7 @@ def run_migration(
     reset_checkpoint: Callable[..., None] = _reset_checkpoint,
     real_doc_ids: set[str] | None = None,
     stale_doc_ids: list[str] | None = None,
-    delete_from_chroma: Callable[[list[str]], None] = _delete_from_chroma,
+    reconcile_chroma: Callable[[Neo4jClient], int] = reconcile_chroma_with_neo4j,
 ) -> dict[str, dict[str, int]]:
     """Chay migration (hoac chi bao cao khi `apply=False`).
 
@@ -290,20 +332,20 @@ def run_migration(
     logger.info("buoc 2/5: xoa Article external placeholder da thanh mo coi")
     client.run(DELETE_ORPHAN_EXTERNAL_ARTICLES_QUERY)
 
-    logger.info("buoc 3/5: xoa %d Document cu + cay con", len(stale_doc_ids))
+    logger.info("buoc 3/6: xoa %d Document cu + cay con", len(stale_doc_ids))
     if stale_doc_ids:
-        # Lay article_id TRUOC khi xoa node (sau khi xoa thi khong con doc
-        # duoc), de xoa dung cac ban ghi tuong ung trong Chroma.
-        rows = client.run(STALE_ARTICLE_IDS_QUERY, doc_ids=stale_doc_ids)
-        stale_article_ids = [row["article_id"] for row in rows]
         client.run(DELETE_STALE_DOCUMENT_SUBTREE_QUERY, doc_ids=stale_doc_ids)
-        delete_from_chroma(stale_article_ids)
 
-    logger.info("buoc 4/5: reset checkpoint ingest")
+    logger.info("buoc 4/6: reset checkpoint ingest")
     reset_checkpoint()
 
-    logger.info("buoc 5/5: chay lai ingest (tao lai REFERENCES + T025 metadata)")
+    logger.info("buoc 5/6: chay lai ingest (tao lai REFERENCES + T025 metadata)")
     reingest(data_dir, client=client)
+
+    # SAU re-ingest (khong truoc): luc nay tap Article moi la tap CUOI CUNG,
+    # nen ban ghi Chroma nao khong ung voi Article nao deu that su la rac.
+    logger.info("buoc 6/6: doi chieu Chroma <-> Neo4j, xoa ban ghi mo coi")
+    reconcile_chroma(client)
 
     sau = _snapshot(client)
     logger.info("SAU migration: %s", sau)
