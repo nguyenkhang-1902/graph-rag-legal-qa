@@ -44,13 +44,22 @@ trong 01_2011_qh13_2.md tiep tuc sang dong thu 2 khong co so thu tu moi) -
 CHI ket thuc khi gap muc danh so TIEP THEO (dau dong, "N. ") hoac het van
 ban.
 
-CHI kich hoat khi van ban chua cum trigger "duoc hieu nhu sau" (tim trong
-TOAN BO text, khong phan biet hoa/thuong) - neu khong co trigger nay,
+CHI kich hoat khi van ban chua MOT trong cac cum trigger - "duoc hieu nhu
+sau" HOAC "giai thich tu ngu" (T012b, xem `_ENUM_TRIGGER_RE`; tim trong
+TOAN BO text, khong phan biet hoa/thuong) - neu khong co trigger nao,
 KHONG ap dung mau danh sach danh so, tranh false positive tren cac danh
 sach danh so KHAC khong phai dinh nghia (vd danh sach dieu kien/thu tuc
 cung co the tinh co chua cau truc "N. X la Y" ve mat cu phap nhung khac
 hoan toan ve ngu nghia - xem test_enum_list_pattern_requires_trigger_
 phrase_to_avoid_false_positive).
+
+=== Mau 2 mo rong (T012b, 2026-08-06) ===
+Chi them mot trigger, KHONG doi logic tach term/dinh nghia. Ly do: 263 file
+co tieu de "Dieu N. Giai thich tu ngu" nhung KHONG he co cum "duoc hieu nhu
+sau" -> truoc ban sua nay bi bo sot HOAN TOAN. Do that sau khi sua: 844 ->
+1,020 file, 6,055 -> 6,926 dinh nghia (+14.4%), chi phi ~0 (regex, ~15s
+toan corpus) - re hon rat nhieu so voi LLM fallback (uoc tinh 35-85h GPU,
+tranh VRAM voi embedding, kem rui ro hallucination). Xem TIEN_DO.md DOT 11.
 
 Ket qua tu ca 2 mau (quotes + danh sach danh so) duoc GOP lai, loai trung
 lap theo term_id (giu ket qua XUAT HIEN TRUOC neu 2 mau cung tra ve mot
@@ -83,6 +92,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from functools import lru_cache
 
 from app.extraction.slugify import slugify_doc_name
 
@@ -113,7 +123,29 @@ _ENUM_ITEM_RE = re.compile(
     re.DOTALL,
 )
 
-_ENUM_TRIGGER_RE = re.compile(r"được hiểu như sau", re.IGNORECASE)
+# Trigger kich hoat mau danh sach danh so. HAI cum, KHONG phai mot:
+#   - "duoc hieu nhu sau": cum dan nhap thuong gap truoc danh sach dinh
+#     nghia (ban dau T012 chi co cum nay).
+#   - "Giai thich tu ngu" (T012b, 2026-08-06): chinh TIEU DE cua Dieu. Khao
+#     sat that toan bo 61,069 file: 263 file co tieu de "Dieu N. Giai thich
+#     tu ngu" NHUNG khong he co cum "duoc hieu nhu sau" - noi dung van la
+#     danh sach dinh nghia chuan (vd data/raw/02_2011_tt-bkhcn_3.md) nen bi
+#     bo sot HOAN TOAN truoc ban sua nay. Do that: 844 -> 1,020 file,
+#     6,055 -> 6,926 dinh nghia (+14.4%) ma khong can LLM fallback.
+#
+# Tim TOAN VAN BAN (khong chi dong dau): corpus that co ca dang heading bi
+# tach dong (vd data/raw/170_1999_qd-ttg_2.md - dong dau chi "# Dieu 2.",
+# cum "Giai thich tu ngu" o dong ke tiep) va dang doan dinh nghia nam trong
+# trich dan sua doi ("Dieu 2. Giai thich tu ngu" duoc quote lai ben trong
+# mot Dieu sua doi). Da kiem chung TAY toan bo 18 file thuoc 2 dang nay:
+# 137 dinh nghia trich ra deu HOP LE, khong co false positive - nen khong
+# gioi han trigger vao dong dau (se bo sot ca 18 file do).
+#
+# Van GIU nguyen tac "phai co trigger" (khong noi long thanh "moi danh sach
+# danh so"): 5,707 file co cau truc "N. X la ..." nhung KHONG co trigger
+# nao - do la danh sach dieu kien/thu tuc thong thuong, trich vao se no
+# false positive (xem test_enum_list_pattern_requires_trigger_phrase...).
+_ENUM_TRIGGER_RE = re.compile(r"được hiểu như sau|giải thích từ ngữ", re.IGNORECASE)
 
 # " la " co the xuat hien NHIEU LAN tren dong dau cua mot muc - pho bien
 # nhat la mau viet tat "<Ten day du> (sau day goi tat la <ten ngan>) la
@@ -123,6 +155,28 @@ _ENUM_TRIGGER_RE = re.compile(r"được hiểu như sau", re.IGNORECASE)
 # CHI dung de TIM vi tri ung vien - _split_enum_item_term_and_definition
 # se loc bo vi tri nam trong ngoac chua dong.
 _LA_SPLIT_RE = re.compile(r"\s+là\s+")
+
+
+# === HIEU NANG (constitution Dieu 7 - thiet ke cho quy mo) ===
+# `scripts/extract_terms.py` pass 2 goi `extract_term_usages_rule_based` cho
+# MOI Article (60,679) voi MOI thuat ngu da biet (~6,900 sau T012b) =
+# ~419 TRIEU luot kiem tra. Truoc ban sua nay `re.compile` nam TRONG vong
+# lap: cache regex noi bo cua Python chi giu 512 pattern, voi 6,900 pattern
+# phan biet thi cache thrash -> recompile gan nhu moi luot. Do that: script
+# chay HON 50 PHUT chua xong (voi 5,352 thuat ngu truoc T012b da cham nhung
+# con chiu duoc, nen van de nay chi lo ra khi so thuat ngu tang).
+#
+# Hai toi uu, ngu nghia GIU NGUYEN chinh xac:
+#   1. `lru_cache` khong gioi han: mot ten thuat ngu chi compile MOT LAN cho
+#      ca lan chay (~6,900 pattern, khong dang ke ve bo nho).
+#   2. Tien loc `ten_thuat_ngu not in text` (C-level, rat nhanh) truoc khi
+#      chay regex - o quy mo that ~99.9% thuat ngu khong xuat hien trong mot
+#      Dieu bat ky. An toan vi regex word-boundary chi LOC HEP them ket qua
+#      ma `in` da tim thay, khong bao gio tim ra ket qua `in` khong thay.
+@lru_cache(maxsize=None)
+def _compile_term_pattern(ten_thuat_ngu: str) -> re.Pattern[str]:
+    """Regex word-boundary, CASE-SENSITIVE cho mot ten thuat ngu (cached)."""
+    return re.compile(r"\b" + re.escape(ten_thuat_ngu) + r"\b")
 
 
 def _split_enum_item_term_and_definition(item_text: str) -> tuple[str, str] | None:
@@ -235,8 +289,12 @@ def extract_term_usages_rule_based(
 
     matches: list[tuple[int, TermUsage]] = []
     for term_id, ten_thuat_ngu in known_terms.items():
-        pattern = re.compile(r"\b" + re.escape(ten_thuat_ngu) + r"\b")
-        found = pattern.search(text)
+        # Tien loc bang `in` TRUOC khi chay regex - xem ghi chu hieu nang
+        # tren `_compile_term_pattern`. Ngu nghia KHONG doi: regex
+        # word-boundary chi LOC HEP them nhung gi `in` da tim thay.
+        if ten_thuat_ngu not in text:
+            continue
+        found = _compile_term_pattern(ten_thuat_ngu).search(text)
         if found:
             matches.append((found.start(), TermUsage(term_id, ten_thuat_ngu)))
 

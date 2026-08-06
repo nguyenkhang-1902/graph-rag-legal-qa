@@ -170,6 +170,49 @@ def test_enum_list_last_item_captures_to_end_of_text():
     assert result[1].dinh_nghia == "định nghĩa B, có thể dài hai câu. Câu thứ hai vẫn thuộc mục 2."
 
 
+def test_extracts_enum_definitions_with_heading_giai_thich_tu_ngu_only():
+    # T012b (2026-08-06): nguyen van rut gon tu data/raw/02_2011_tt-bkhcn_3.md
+    # - file CO heading "Dieu N. Giai thich tu ngu" nhung KHONG co cum
+    # "duoc hieu nhu sau" o dau ca. Khao sat that toan corpus: 263 file
+    # dang o tinh trang nay va bi bo sot HOAN TOAN (trich duoc 0 dinh
+    # nghia) du noi dung la danh sach dinh nghia chuan - xem TIEN_DO.md
+    # DOT 11. Chinh heading "Giai thich tu ngu" DA la trigger du manh.
+    text = (
+        "Điều 3. Giải thích từ ngữ\n\n"
+        "1. Lô vật liệu là phần vật liệu hạt nhân được coi là một đơn vị "
+        "dùng cho mục đích kiểm kê tại một điểm đo then chốt.\n"
+        "2. Điểm đo then chốt (KMP) là điểm mà ở đó vật liệu hạt nhân ở "
+        "dạng có thể đo đạc được."
+    )
+    result = extract_definitions_rule_based(text)
+    assert len(result) == 2
+    assert result[0].ten_thuat_ngu == "Lô vật liệu"
+    assert result[0].dinh_nghia == (
+        "phần vật liệu hạt nhân được coi là một đơn vị dùng cho mục đích "
+        "kiểm kê tại một điểm đo then chốt."
+    )
+    # Ngoac viet tat "(KMP)" khong duoc lam cat cut thuat ngu (cung co che
+    # ngoac can bang da co - xem test_enum_list_skips_la_inside_...).
+    assert result[1].ten_thuat_ngu == "Điểm đo then chốt (KMP)"
+
+
+def test_heading_giai_thich_tu_ngu_trigger_is_case_insensitive_and_off_first_line():
+    # Corpus that co ca dang heading bi TACH DONG (vd
+    # data/raw/170_1999_qd-ttg_2.md: dong dau chi "# Dieu 2.", cum "Giai
+    # thich tu ngu" nam o dong ke tiep) - trigger phai tim TOAN VAN BAN,
+    # khong chi dong dau. Khao sat that: 18 file thuoc dang nay, doc tay
+    # xac nhan deu la muc dinh nghia that (khong phai false positive).
+    text = (
+        "Điều 2.\n\n"
+        "giải thích từ ngữ\n"
+        "1. Ngoại tệ quy định tại Quyết định này là các ngoại tệ tự do "
+        "chuyển đổi."
+    )
+    result = extract_definitions_rule_based(text)
+    assert len(result) == 1
+    assert result[0].ten_thuat_ngu == "Ngoại tệ quy định tại Quyết định này"
+
+
 def test_enum_list_pattern_requires_trigger_phrase_to_avoid_false_positive():
     # Danh sach danh so nhung KHONG phai dinh nghia (dieu kien) va KHONG
     # co trigger "duoc hieu nhu sau" - khong duoc trich, tranh false
@@ -217,6 +260,73 @@ def test_combines_quoted_pattern_and_enum_list_pattern_without_duplicate_term_id
 
 
 # --- extract_term_usages_rule_based --------------------------------------
+
+
+def test_term_usage_pattern_is_compiled_once_per_term_across_calls():
+    # HIEU NANG (constitution Dieu 7 - thiet ke cho quy mo). Phat hien that
+    # 2026-08-06: `scripts/extract_terms.py` pass 2 goi ham nay cho MOI
+    # Article (60,679) voi MOI thuat ngu da biet (~6,900 sau T012b) =
+    # ~419 trieu luot. `re.compile` nam trong vong lap khien cache regex noi
+    # bo cua Python (512 pattern) bi thrash -> recompile gan nhu moi luot;
+    # do that: script chay >50 phut chua xong (truoc T012b, voi 5,352 thuat
+    # ngu, da cham nhung con chiu duoc).
+    #
+    # Test nay ghim: pattern cho CUNG mot ten thuat ngu chi duoc compile MOT
+    # LAN, du ham duoc goi nhieu lan (yeu cau doi voi bat ky co che cache
+    # nao, khong ghim rieng lru_cache).
+    import app.extraction.term_extractor as te
+
+    known = {"ngay": "Ngày"}
+    compile_calls = []
+    real_compile = te.re.compile
+
+    def counting_compile(pattern, *args, **kwargs):
+        compile_calls.append(pattern)
+        return real_compile(pattern, *args, **kwargs)
+
+    te._compile_term_pattern.cache_clear()
+    original = te.re.compile
+    te.re.compile = counting_compile
+    try:
+        for _ in range(50):
+            te.extract_term_usages_rule_based("Ngày là ngày dương lịch.", known)
+    finally:
+        te.re.compile = original
+
+    assert len(compile_calls) == 1, (
+        f"pattern bi compile {len(compile_calls)} lan cho 50 lan goi - "
+        "cache khong hoat dong"
+    )
+
+
+def test_term_not_present_as_substring_is_skipped_without_regex():
+    # Toi uu thu hai: kiem tra `in` (C-level, rat nhanh) TRUOC khi chay
+    # regex word-boundary. O quy mo that, ~99.9% thuat ngu khong xuat hien
+    # trong mot Dieu bat ky - bo qua chung bang `in` re hon regex rat nhieu.
+    # Ngu nghia KHONG doi: regex word-boundary chi LOC HEP them ket qua ma
+    # `in` da tim thay, khong bao gio tim ra ket qua `in` khong thay.
+    import app.extraction.term_extractor as te
+
+    known = {"a": "Không xuất hiện", "b": "Ngày"}
+    te._compile_term_pattern.cache_clear()
+
+    compiled = []
+    real_compile = te.re.compile
+
+    def counting_compile(pattern, *args, **kwargs):
+        compiled.append(pattern)
+        return real_compile(pattern, *args, **kwargs)
+
+    original = te.re.compile
+    te.re.compile = counting_compile
+    try:
+        result = te.extract_term_usages_rule_based("Ngày là ngày dương lịch.", known)
+    finally:
+        te.re.compile = original
+
+    assert [u.ten_thuat_ngu for u in result] == ["Ngày"]
+    # Chi thuat ngu CO trong text moi duoc compile pattern.
+    assert len(compiled) == 1
 
 
 def test_finds_known_term_used_in_text():
