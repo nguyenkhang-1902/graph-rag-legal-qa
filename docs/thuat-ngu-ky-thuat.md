@@ -67,6 +67,48 @@ Ví dụ cụ thể để dễ hình dung: có 2 câu hỏi. Câu A cần [Đi�
 - **Batch**: một nhóm văn bản được xử lý cùng lúc rồi mới ghi checkpoint, thay vì xử lý — ghi checkpoint cho từng văn bản một (đỡ tốn I/O, nhưng nếu crash giữa batch thì mất tiến độ của cả batch đó, không phải chỉ 1 văn bản).
 - **Constraint / Index** (Neo4j, `data-model.md`): `CONSTRAINT ... UNIQUE` đảm bảo một thuộc tính (vd `article_id`) không trùng lặp trong toàn graph; `INDEX` giúp tra cứu nhanh theo thuộc tính đó thay vì quét toàn bộ node.
 
+## 🏷️ 6. Định danh văn bản pháp luật (bổ sung 2026-08-06, T025/T026)
+
+Ba cách viết cùng một văn bản, rất hay bị lẫn — đây chính là nguồn gốc bug T026:
+
+| Cách viết | Ví dụ | Ai dùng |
+|---|---|---|
+| **Tên file** | `19_2016_tt-bxd` | corpus tải về (`data/raw/`), `app/ingest.py` đọc |
+| **Số hiệu văn bản** | `19/2016/TT-BXD` | cách trích dẫn chuẩn *trong* nội dung văn bản |
+| **`doc_id`** | `19-2016-tt-bxd` | khoá trong Neo4j |
+
+- **Số hiệu văn bản**: mã định danh chính thức, gồm 3 phần `{số thứ tự}/{năm ban hành}/{mã hiệu}`. Ví dụ `99/2015/NĐ-CP` = văn bản số 99, ban hành năm 2015, mã hiệu NĐ-CP.
+- **Mã hiệu**: phần cuối số hiệu, cho biết **loại văn bản** + **cơ quan ban hành**. `NĐ-CP` = Nghị định của Chính phủ; `TT-BXD` = Thông tư của Bộ Xây dựng; `QĐ-TTg` = Quyết định của Thủ tướng; `TTLT-...` = Thông tư liên tịch (nhiều cơ quan). Tiền tố (phần trước dấu `-` đầu tiên) là thứ dùng để suy ra loại văn bản — xem `_MA_HIEU_PREFIX_TO_LOAI_VB` trong `app/extraction/doc_identity.py`.
+- **Mã hiệu Quốc hội (`QH13`, `QH14`...)**: `QH` + số khoá Quốc hội. ⚠️ Đây là ngoại lệ quan trọng: mã hiệu này dùng **chung** cho Luật / Bộ luật / Nghị quyết / Pháp lệnh, nên **không suy ra được loại văn bản** — 98 văn bản trong corpus thuộc nhóm này, `loai_vb` để `None` thay vì đoán.
+- **`doc_id` vs `article_id`**: `doc_id` là văn bản (`19-2016-tt-bxd`), `article_id` là một Điều cụ thể trong đó (`19-2016-tt-bxd_dieu-5`). ⚠️ `article_id` **cũng chính là id trong Chroma** — nên đổi cách sinh `doc_id` đồng nghĩa với phải embed lại toàn bộ Article liên quan. Đây là lý do một số bất nhất nhỏ (4 văn bản dùng chữ `ð`) được ghi nhận là hạn chế chứ không sửa ngầm.
+- **Chỉ danh chuẩn (canonical designation)**: cụm `"{loại văn bản} {số hiệu}"` — ví dụ `"Thông tư 19/2016/TT-BXD"`. Đây là thứ `Document.title` đang chứa sau T025. ⚠️ **Không phải** tiêu đề văn xuôi (`"Thông tư quy định chi tiết về phát triển nhà ở..."`) — tiêu đề đó **không tồn tại** trong corpus (dataset Zalo trả về từng Điều riêng lẻ, không có bản ghi cấp văn bản).
+
+## 🔀 7. Các loại trích dẫn (T026)
+
+Phân loại theo mức độ resolve được, quyết định `target_article_id` trỏ đi đâu:
+
+1. **Self-reference (tự trích dẫn)**: `"...quy định tại Điều 10..."` hoặc `"Điều 5 của Luật này"` — trỏ tới một Điều **trong chính văn bản đang đọc**. `doc_slug` = `current_doc_slug`.
+2. **Cross-document reference có số hiệu**: `"Điều 10 Nghị định số 16/2010/NĐ-CP"` — resolve chính xác thành `16-2010-nd-cp_dieu-10`. Đây là nhóm T026 sửa được.
+3. **Cross-document reference chỉ có tên**: `"Điều 5 của Luật Doanh nghiệp"` — ⚠️ **không resolve tự động được**. Cùng một tên có thể ứng với nhiều phiên bản (`Luật Chứng khoán` có 3 phiên bản 2019/2006/2010) — chọn bừa một phiên bản là **sai về mặt pháp lý**. 30,024 lượt trong corpus thuộc nhóm này.
+
+**Dangling reference (trích dẫn treo)**: edge REFERENCES trỏ tới một `article_id` **không tồn tại** trong graph. Dấu hiệu thường gặp nhất của resolve sai — đo được 14,621/115,016 self-reference (12,7%) trỏ tới Điều không có trong chính văn bản đó, chính là bằng chứng phát hiện bug T026.
+
+**Trigger phrase (cụm kích hoạt)**: cụm từ bắt buộc phải xuất hiện trong văn bản để một mẫu rule-based được **cho phép** chạy (`term_extractor.py`: `"được hiểu như sau"`, `"giải thích từ ngữ"`). Mục đích: cùng một cấu trúc cú pháp (`"N. X là Y"`) mang ngữ nghĩa hoàn toàn khác nhau tuỳ ngữ cảnh — 5,707 file có cấu trúc đó nhưng là danh sách điều kiện/thủ tục, không phải định nghĩa. Trigger là cách rẻ nhất để phân biệt mà không cần LLM.
+
+## 🧹 8. Thuật ngữ về migration & vận hành dữ liệu (T027)
+
+- **Dữ liệu dẫn xuất (derived data)**: dữ liệu tính ra được từ nguồn bằng code, nên xoá đi không mất mát thật. REFERENCES/placeholder là dẫn xuất từ `data/raw/*.md`; embedding trong Chroma thì **không** (tốn hàng giờ GPU để tạo lại) — đây là lý do migration được phép xoá cái đầu nhưng tuyệt đối không đụng cái sau.
+- **Stale data (dữ liệu cũ đọng lại)**: hệ quả trực tiếp của **MERGE idempotent** — MERGE chỉ *thêm* chứ không bao giờ *xoá*, nên khi logic sinh dữ liệu được sửa, các edge sai cũ **vẫn nằm đó**. Chạy lại ingest không đủ: graph sẽ chứa cả edge đúng (mới) lẫn edge sai (cũ), tệ hơn trước khi sửa. Bắt buộc phải xoá tường minh.
+- **Dry-run**: chạy để **báo cáo** những gì *sẽ* thay đổi mà không thay đổi gì. `scripts/migrate_references.py` mặc định dry-run, phải truyền `--apply` mới thực sự ghi — quy ước cho script duy nhất trong dự án xoá dữ liệu thật.
+- **Orphan node (node mồ côi)**: node không còn quan hệ nào sau khi xoá edge. Migration chỉ xoá external placeholder **mồ côi** — placeholder vẫn đang là đích của AMENDS/SUPERSEDES/CONFLICTS_WITH (T013) phải được giữ. Đây là lý do dùng `COUNT { (a)--() } = 0` chứ **không** dùng `DETACH DELETE` (DETACH sẽ xoá luôn cả quan hệ còn lại).
+- **`CALL ... IN TRANSACTIONS`**: cú pháp Cypher chia một thao tác lớn thành nhiều transaction nhỏ. Xoá 37,875 edge trong **một** transaction dễ làm hết heap của Neo4j Community — chia lô 10,000 dòng là đủ an toàn. Chỉ chạy được trong auto-commit transaction (`session.run`), không chạy được bên trong transaction tường minh.
+
+## ⚡ 9. Thuật ngữ hiệu năng gặp thật trong dự án
+
+- **Regex cache thrashing**: Python cache sẵn các pattern đã `re.compile` nhưng **chỉ 512 pattern**. Khi số pattern phân biệt vượt ngưỡng đó (dự án này: ~6,900 tên thuật ngữ), mỗi lần gọi lại bị recompile từ đầu → chậm gấp nhiều lần. Phát hiện thật 2026-08-06: `extract_terms.py` chạy hơn 50 phút chưa xong; sau khi thêm `lru_cache` cho `_compile_term_pattern` + tiền lọc `in` thì còn ~8,5 phút.
+- **Tiền lọc (prefilter)**: kiểm tra rẻ trước khi làm phép đắt, với điều kiện **phép rẻ không bao giờ loại oan** kết quả mà phép đắt sẽ tìm được. Ở đây: `ten_thuat_ngu not in text` (so khớp chuỗi ở tầng C, rất nhanh) chạy trước regex word-boundary — an toàn vì regex chỉ *lọc hẹp thêm* những gì `in` đã tìm thấy, không bao giờ tìm ra thứ `in` không thấy.
+- **Padding theo batch**: xem lại mục về `EMBED_BATCH_SIZE`/batching theo tầng độ dài trong `TIEN_DO.md` ĐỢT 5 — cùng một họ vấn đề "một phần tử ngoại lai làm chậm cả lô".
+
 ---
 
 *File này để tra cứu nhanh khi đọc lại spec/code sau này. Thêm thuật ngữ mới vào đúng mục liên quan khi gặp — không cần tạo file mới trừ khi mục này quá dài.*

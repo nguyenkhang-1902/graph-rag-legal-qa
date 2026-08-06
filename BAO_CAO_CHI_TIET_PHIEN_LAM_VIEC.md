@@ -225,3 +225,313 @@
 - `specs/001-graph-rag-core/research.md` (thêm ADR-004)
 - `TIEN_DO.md`, `CHECKLIST-GRAPHRAG-DUYET.md` (cập nhật liên tục theo từng đợt)
 - Toàn bộ test tương ứng cho mỗi module trên (TDD — viết trước, xác nhận đỏ, rồi implement)
+
+---
+---
+
+# 📋 PHIÊN LÀM VIỆC 2026-08-06 (buổi 2) — T012b / T025 / T026 / T027
+
+> Ghi **từng bước một**, gồm cả nguyên văn thông báo lỗi đỏ và cách sửa, theo yêu cầu của Khang.
+
+## 0. Yêu cầu mở đầu
+
+**Yêu cầu 1**: "hãy đọc các file .md và file docx để nắm tình hình project"
+- Đã quét toàn repo: **không có file `.docx`/`.doc`/`.pdf` nào** — toàn bộ tài liệu là `.md`. Đã báo rõ thay vì im lặng bỏ qua.
+- Đọc `TIEN_DO.md`, `CHECKLIST-GRAPHRAG-DUYET.md`, `BAO_CAO_CHI_TIET_PHIEN_LAM_VIEC.md`, `constitution.md`, `spec.md`, `tasks.md`, `docs/thuat-ngu-ky-thuat.md`, outline `research.md`/`plan.md`, `data-model.md`.
+- Phát hiện toàn bộ công việc ĐỢT 9 + 10 **chưa commit** (untracked: `relation_llm.py`, `extract_relations.py`, `eval_graph_recall.py`, `docs/`, các test tương ứng; modified: `config.py`, `upsert.py`, `research.md`).
+
+**Yêu cầu 2** (Khang trả lời 5 điểm chờ duyệt): (1) bổ sung trích title; (2) sửa slug cho nhất quán — "đây là những file gây nhiều họ cố tình để vào"; (3) sửa độ phủ; (4) so ở 10k + ghi rõ hạn chế, rồi tự đo baseline mới ở 67k và trình bày là phát triển thêm; (5) hỏi T012 nên đầu tư thêm gì. Kèm: "Hãy commit trước rồi làm tiếp".
+
+**Yêu cầu 3** (giữa phiên): "sau khi chạy xong, cập nhật vào file báo cáo đầy đủ từng chi tiết, từ việc báo lỗi đỏ đến vc sửa như nào. cũng như cập nhật thêm các từ vựng mới vào file từ ngữ chuyên ngành" → chính là mục đích của phần báo cáo này + mục 6-9 mới trong `docs/thuat-ngu-ky-thuat.md`.
+
+## 1. Commit dọn dẹp (3 commit)
+
+Kiểm tra an toàn trước khi commit: `git check-ignore -v .env` → xác nhận `.env` đã trong `.gitignore` (dòng 9), không có secret nào lọt vào. Chạy full suite trước: **228 passed, 1 failed** (đúng cái fail `.env` cục bộ đã biết).
+
+Chia 3 commit logic thay vì một commit gộp:
+- `9882047` feat(T013) — relation_llm + upsert_relations + extract_relations CLI + 41 test.
+- `243e81b` feat(T017) — eval_graph_recall + ADR-004 (SIMILARITY_THRESHOLD 0.75→0.65) + fixture kết quả baseline.
+- `2a3fe73` docs — nhật ký ĐỢT 9-10, checklist F1/F2/G1, báo cáo phiên, giải nghĩa thuật ngữ.
+
+**Lỗi tự gây ra và sửa ngay**: commit đầu dùng cú pháp here-string của PowerShell (`-m @'...'@`) trong tool Bash → ký tự `@` lọt vào message (`git log -1 --format=%B | cat -A` cho thấy dòng đầu là `@$`). Sửa bằng `git commit --amend -F -` với heredoc Bash đúng cú pháp (`<<'EOF'`). Các commit sau dùng heredoc ngay từ đầu.
+
+## 2. Khảo sát dữ liệu thật trước khi thiết kế (3 script scratchpad)
+
+Không thiết kế theo suy đoán — viết 3 script quét toàn bộ 61,069 file thật.
+
+**Trở ngại kỹ thuật**: script đầu crash `UnicodeEncodeError: 'charmap' codec can't encode character 'đ'` — console Windows mặc định cp1252. Sửa bằng `PYTHONIOENCODING=utf-8` cho mọi lần chạy sau.
+
+### 2a. Khảo sát mã hiệu (phục vụ mục 1 — Document.title)
+
+- **3,207** doc_prefix phân biệt, **3,206** khớp dạng `{số}_{năm}_{mã-hiệu}`; 1 ngoại lệ: `21-lct_hđnn8`.
+- Chỉ **12** tiền tố mã hiệu phân biệt: `tt` 1,867 · `nđ` 842 · `ttlt` 218 · `qđ` 174 · `qh13` 36 · `qh14` 34 · `qh12` 17 · `qh11` 7 · `nð` 4 · `nd` 3 · `qh` 2 · `qh10` 2.
+- **Phát hiện quyết định**: corpus **không chứa tiêu đề văn bản ở đâu cả**. Đọc `scripts/fetch_zalo_legal_corpus.py` (`_write_doc` dòng 103: `content = f"# {title}\n\n{text}\n"`) + đọc tay 3 file thật (`19_2016_tt-bxd_1.md`, `19_2016_tt-bxd_2.md`, `12_2017_qh14_1.md`) → xác nhận `title` mà dataset trả về là tiêu đề **Điều** (`"Điều 1. Phạm vi Điều chỉnh"`), không phải tiêu đề văn bản. Kết luận: `Document.title` chỉ suy được từ **tên file**, và chỉ ra được **chỉ danh chuẩn**, không phải tiêu đề văn xuôi.
+
+### 2b. Khảo sát độ phủ trích dẫn (phục vụ mục 2+3)
+
+| Chỉ số | Số liệu thật |
+|---|---|
+| Trích dẫn `Điều N` regex cũ bắt được | **115,563** |
+| …resolve được cross-document | **547 (0,47%)** |
+| …bị coi là self-reference | 115,016 (99,5%) |
+| Self-ref trỏ tới Article **không tồn tại** trong cùng Document | **14,621 (12,7%)** |
+| Dạng `Điều N **của** <Loại>` bị bỏ sót | 10,745 lần / 5,889 file |
+| Dạng `<Loại> **số** N/YYYY/MÃ` bị bỏ sót | 6,417 lần / 3,623 file |
+| Dạng `<Loại> <tên> <số hiệu>` bị bỏ sót | 252 lần / 151 file |
+
+→ Bug thật **không phải** "1,4% external giả" như ghi trong ĐỢT 10, mà là: trích dẫn có nêu tên văn bản đích đang bị **âm thầm resolve thành self-reference**, trỏ sai sang một Điều khác trong *cùng* văn bản. Con số 12,7% dangling là bằng chứng trực tiếp.
+
+### 2c. Đo lợi ích + thử phương án từ điển tên→số hiệu
+
+- **6,767** trích dẫn cross-doc **có số hiệu**: 3,302 trỏ tới Document đã có trong corpus (3,275 có đúng Article đích), 3,465 external thật.
+- **Thử mine từ điển "tên văn bản → số hiệu"** từ chính corpus và **kết luận không dùng được**: 387 tên phân biệt, 319 đơn nghĩa, nhưng chỉ **86** đơn nghĩa khớp doc thật; và các tên quan trọng nhất **thực sự đa nghĩa** — `Luật Chứng khoán` → 3 phiên bản (`54-2019-qh14` 41 lần, `70-2006-qh11` 13, `62-2010-qh12` 7), `Luật Doanh nghiệp` → 2 phiên bản. Chọn bừa một phiên bản là **sai về pháp lý**. Ghi rõ để không ai thử lại hướng này.
+- **Kiểm tra rủi ro leading zero** (trước khi thiết kế, không đoán): 592/3,203 doc_id có số bắt đầu bằng `0` (vd `05_2017_tt-btnmt`), nhưng đo 6,767 trích dẫn → **0 trường hợp** cần chuẩn hoá leading zero. Corpus viết số hiệu nhất quán với tên file → **không thêm logic chuẩn hoá** (nếu thêm sẽ sinh `5-2017-...` không bao giờ khớp).
+
+### 2d. Khảo sát T012 (phục vụ câu hỏi 5 của Khang)
+
+- **263 file** có trigger định nghĩa nhưng trích được **0** định nghĩa. Đọc tay 3 file (`01_2014_tt-btc_3.md`, `02_2011_tt-bkhcn_3.md`, `02_2016_tt-btp_3.md`) → nguyên nhân rõ: có heading `Điều N. Giải thích từ ngữ` nhưng **không** có cụm `"được hiểu như sau"`, mà `_ENUM_TRIGGER_RE` chỉ khớp cụm đó.
+- **Kiểm tra rủi ro false positive trước khi chốt** (đúng Quy tắc riêng #3): 1,039 file chứa `"Giải thích từ ngữ"` → 1,021 ở dòng đầu, **18 ở chỗ khác**. Đọc tay nhóm 18 file + 10 mẫu định nghĩa trích ra → **đều hợp lệ**, không có rác. Kiểm chứng nguyên nhân: `170_1999_qđ-ttg_2.md` có dòng đầu chỉ là `# Điều 2.`, cụm nằm dòng kế tiếp; `07_2019_tt-bkhđt_1.md` có đoạn định nghĩa nằm trong trích dẫn sửa đổi. → Trigger tìm toàn văn bản là **an toàn**, không giới hạn dòng đầu.
+- Đo trước khi code: 844 → **1,020 file**, 6,055 → **6,926 định nghĩa** (+14,4%).
+- **Cố tình KHÔNG phủ**: 5,707 file có cấu trúc `N. X là ...` nhưng không trigger nào — là danh sách điều kiện/thủ tục.
+
+**Trả lời câu 5 của Khang**: không cần LLM fallback. Chi phí phương án rule-based = **1 dòng regex**, chạy lại ~15s, **0 đồng / 0 GPU**; so với LLM fallback ước tính **35–85 giờ GPU** + tranh 6GB VRAM với embedding + rủi ro hallucination cần confidence filtering.
+
+## 3. T012b — mở rộng trigger định nghĩa (TDD chi tiết)
+
+**Bước đỏ**: thêm 2 test vào `tests/extraction/test_term_extractor.py` rồi chạy `pytest -k "giai_thich"`:
+```
+FAILED test_extracts_enum_definitions_with_heading_giai_thich_tu_ngu_only
+        assert 0 == 2   (where 0 = len([]))
+FAILED test_heading_giai_thich_tu_ngu_trigger_is_case_insensitive_and_off_first_line
+        assert 0 == 1   (where 0 = len([]))
+2 failed, 22 deselected
+```
+
+**Bước sửa**: `app/extraction/term_extractor.py`
+```python
+# TRƯỚC
+_ENUM_TRIGGER_RE = re.compile(r"được hiểu như sau", re.IGNORECASE)
+# SAU
+_ENUM_TRIGGER_RE = re.compile(r"được hiểu như sau|giải thích từ ngữ", re.IGNORECASE)
+```
+Kèm ~20 dòng comment ghi lại bằng chứng (263 file, 18 file heading tách dòng, 5,707 file cố tình bỏ) và cập nhật module docstring mục "Mẫu 2 mở rộng".
+
+**Bước xanh**: 24/24 test `term_extractor`.
+
+## 4. T012b (tiếp) — bug hiệu năng thật phát hiện khi chạy thật
+
+**Triệu chứng**: chạy `python -m scripts.extract_terms data/raw` → **quá 600s timeout**, chuyển sang nền, và sau **hơn 50 phút** vẫn chưa xong (kiểm tra `tasklist`: PID 11340 còn sống, 358MB). Lần chạy trước (ĐỢT 7, 5,352 thuật ngữ) đã hoàn tất — nên đây là hồi quy do số thuật ngữ tăng.
+
+**Chẩn đoán** (đọc code, không đoán): `extract_term_usages_rule_based` tại `term_extractor.py:269` gọi `re.compile` **bên trong vòng lặp từng thuật ngữ**, và hàm này được gọi cho **mỗi** Article:
+```python
+for term_id, ten_thuat_ngu in known_terms.items():
+    pattern = re.compile(r"\b" + re.escape(ten_thuat_ngu) + r"\b")   # <-- trong vòng lặp
+    found = pattern.search(text)
+```
+60,679 Article × ~6,900 thuật ngữ ≈ **419 triệu lượt**. Cache regex nội bộ của Python chỉ giữ **512 pattern** → với 6,900 pattern phân biệt thì cache thrash, gần như recompile mọi lượt.
+
+**Xử lý**: `taskkill /PID 11340 /F` (an toàn — `extract_terms.py` MERGE-based, idempotent, chạy lại từ đầu không hỏng dữ liệu).
+
+**Bước đỏ**: thêm 2 test hiệu năng (đếm số lần `re.compile` bằng cách monkeypatch `te.re.compile`):
+```
+FAILED test_term_usage_pattern_is_compiled_once_per_term_across_calls
+FAILED test_term_not_present_as_substring_is_skipped_without_regex
+        AttributeError: module 'app.extraction.term_extractor' has no attribute
+        '_compile_term_pattern'
+```
+
+**Bước sửa** — hai tối ưu, ngữ nghĩa **giữ nguyên chính xác**:
+```python
+@lru_cache(maxsize=None)
+def _compile_term_pattern(ten_thuat_ngu: str) -> re.Pattern[str]:
+    return re.compile(r"\b" + re.escape(ten_thuat_ngu) + r"\b")
+...
+    if ten_thuat_ngu not in text:      # tiền lọc ở tầng C, rất nhanh
+        continue
+    found = _compile_term_pattern(ten_thuat_ngu).search(text)
+```
+Lý do tiền lọc an toàn: regex word-boundary chỉ **lọc hẹp thêm** những gì `in` đã tìm thấy, không bao giờ tìm ra kết quả mà `in` không thấy.
+
+**Bước xanh**: 26/26 test `term_extractor`.
+
+**Kết quả chạy thật sau fix**: **~8,5 phút** toàn corpus (từ >50 phút chưa xong).
+```
+pass 1 xong: 1018 Article co dinh nghia, 6104 thuat ngu duy nhat
+da ghi 6872 DEFINES (+ Term) vao Neo4j
+da ghi 111604 USES_TERM vao Neo4j
+```
+**Kiểm chứng trực tiếp trong Neo4j**: Term 5,352 → **6,104** · DEFINES 6,005 → **6,872** · USES_TERM 108,723 → **113,888**.
+
+## 5. T025 — `Document.title`/`so_hieu`/`loai_vb` (module `doc_identity.py`)
+
+### 5a. Bước đỏ 1 (module chưa tồn tại)
+Viết `tests/extraction/test_doc_identity.py` (23 test) trước → `ModuleNotFoundError: No module named 'app.extraction.doc_identity'`.
+
+### 5b. Bước đỏ 2 — bug thật TDD bắt được: chữ `ð` (eth)
+Sau khi implement lần đầu: **20 passed, 1 failed**
+```
+FAILED test_maps_encoding_variants_of_dj_in_ma_hieu[nð-cp]
+        AssertionError: assert None in {'Nghị định', 'Quyết định'}
+         +  where None = loai_vb_from_ma_hieu('nð-cp')
+```
+
+**Chẩn đoán bằng dữ liệu thật**: `ð` là **chữ eth U+00F0**, một chữ cái khác hoàn toàn với `đ` U+0111. `slugify_doc_name` chỉ xử lý `đ` (`.replace("đ", "d")`); eth không decompose được nên bị `_NON_ALNUM_RE` thay bằng `-` → `nð-cp` thành `n-cp`, tiền tố `n` không có trong bảng. Quét corpus tìm file thật bị ảnh hưởng:
+```
+'102_2017_nð-cp' (69 file) -> doc_id='102-2017-n-cp'
+'146_2018_nð-cp' (42 file) -> doc_id='146-2018-n-cp'
+'81_2016_nð-cp'  ( 2 file) -> doc_id='81-2016-n-cp'
+'89_2016_nð-cp'  ( 6 file) -> doc_id='89-2016-n-cp'
+```
+= **4 văn bản / 119 Article** (0,12% văn bản, 0,20% Article).
+
+**Cách sửa — có chủ đích chỉ sửa một nửa**: thêm `_normalize_eth()` và dùng **chỉ trong** `loai_vb_from_ma_hieu` (nên `loai_vb`/`title` của 4 văn bản này đúng), **giữ nguyên** `doc_id`. Lý do không sửa `doc_id`: đổi `doc_id` = đổi `article_id`, mà `article_id` **chính là id trong Chroma** → phải embed lại 119 Article + cập nhật Neo4j. Rẻ (~11s GPU) nhưng là thao tác trên **khoá định danh** của dữ liệu thật đã ingest → cần Khang quyết riêng, không làm ngầm (cùng nguyên tắc với ADR-003/`BatchSizeMismatchError`).
+
+Đã viết lại test cho chính xác từng biến thể + thêm `test_eth_variant_doc_id_intentionally_differs_from_so_hieu_doc_id` **ghim** hạn chế này — nếu sau này Khang quyết sửa, test sẽ đỏ và buộc phải đọc ghi chú.
+
+**Bước xanh**: 23/23.
+
+### 5c. Bước đỏ 3 — `upsert_document` chưa nhận `identity`
+```
+FAILED test_upsert_document_with_identity_writes_so_hieu_and_loai_vb
+FAILED test_upsert_document_with_identity_falls_back_to_synthesized_title
+FAILED test_upsert_document_prefers_real_parsed_title_over_synthesized_one
+FAILED test_upsert_document_with_unknown_loai_vb_sends_none_not_guess
+        TypeError (upsert_document() got an unexpected keyword argument 'identity')
+4 failed, 20 passed
+```
+(Test thứ 5 — `..._without_identity_does_not_touch_so_hieu_or_loai_vb` — xanh ngay vì đang là hành vi cũ.)
+
+**Cách sửa + lý do thiết kế quan trọng**: thêm **query RIÊNG** `_DOCUMENT_WITH_IDENTITY_QUERY` chứ **không** thêm `SET d.so_hieu = $so_hieu` vào query cũ với giá trị null — vì trong Cypher `SET x = null` **xoá thuộc tính**, nên một lần chạy không có identity sẽ **âm thầm xoá** `so_hieu`/`loai_vb` đã ghi đúng ở lần chạy trước. Thứ tự title: `parsed.title or identity.title` — tiêu đề văn xuôi thật (nếu có) luôn thắng chỉ danh sinh ra.
+
+**Bước xanh**: 24/24.
+
+### 5d. Bước đỏ 4 — `ingest.py` chưa truyền identity
+```
+FAILED test_run_ingest_writes_document_so_hieu_loai_vb_and_title_from_filename
+        KeyError: 'so_hieu'
+1 failed, 1 passed
+```
+**Cách sửa**: thêm `doc_identity_for_file()` vào `app/ingest.py`, tách **riêng** khỏi `parse_file` để không đổi signature của nó — `parse_file` còn được `detect_and_dedupe_collisions` **và** `scripts/backfill_embeddings.py` dùng, cả hai không cần identity.
+
+**Bước xanh**: 69/69 (`test_ingest` + `test_upsert` + `test_doc_identity`).
+
+## 6. T026 — sửa độ phủ + slug nhất quán (gộp mục 2 và 3)
+
+Gộp làm **một** task vì cùng một nguyên nhân gốc: không có bộ resolve `doc_id` chuẩn hoá.
+
+**Bước đỏ**: cập nhật 4 test cũ đang ghim slug **sai** + thêm 7 test mới → **11 failed, 14 passed**:
+```
+FAILED test_khoan_qualified_cross_document_citation
+FAILED test_multiple_citations_returned_in_order_of_appearance
+FAILED test_cross_document_citation_thong_tu
+FAILED test_cross_document_citation_nghi_quyet
+FAILED test_so_hieu_citation_resolves_to_doc_id_matching_filename
+FAILED test_cua_connector_between_dieu_and_doc_name_with_so_hieu
+FAILED test_cua_connector_with_name_and_year_only
+FAILED test_doc_name_between_loai_vb_and_so_hieu
+FAILED test_thong_tu_lien_tich_is_recognized_before_thong_tu
+FAILED test_so_hieu_leading_zero_is_preserved_in_doc_id
+FAILED test_doc_name_does_not_bleed_across_a_following_citation
+```
+
+**Cách sửa** — pattern hai nhánh có thứ tự:
+```python
+_LOAI_VB_PATTERN = (r"Bộ luật|Luật|Pháp lệnh|Nghị định|Nghị quyết|Quyết định"
+                    r"|Thông tư liên tịch|Thông tư|Chỉ thị")
+_SO_HIEU_PATTERN = r"(?P<so>\d+)\s*/\s*(?P<nam>\d{4})\s*/\s*(?P<ma_hieu>[\w\-]+)"
+# nhánh (1) có số hiệu: "<Loại> [tên] [số] N/YYYY/MÃ"  -> build_doc_identity
+# nhánh (2) chỉ tên+năm: "<Loại> <tên> YYYY"           -> slugify cả cụm (như cũ)
+_CITATION_RE = ... r"Điều\s+(?P<article_num>\d+)"
+                  r"(?:\s+(?:của\s+)?(?P<doc_name>" + _DOC_NAME_PATTERN + r"))?"
+```
+Bốn điểm thiết kế: (a) `của` là tuỳ chọn giữa `Điều N` và tên văn bản; (b) `số` tuỳ chọn trước số hiệu; (c) `Thông tư liên tịch` phải đứng **trước** `Thông tư` trong alternation, nếu không `Thông tư` khớp trước rồi đòi số hiệu ngay và thất bại ở `" liên tịch"`; (d) tên văn bản dùng `[^\d,.;]` (không chứa chữ số) nên **không thể "ăn" nhầm** sang số hiệu của trích dẫn kế tiếp.
+
+**Lỗi cú pháp tự gây ra**:
+```
+File "app/extraction/reference_extractor.py", line 101
+    r"(?:" + _LOAI_VB_PATTERN + r")"
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+SyntaxError: invalid syntax. Perhaps you forgot a comma?
+```
+Nguyên nhân: Python không cho đặt string literal **liền kề** ngay sau một tên biến trong biểu thức nối ngầm (`... + _SO_HIEU_PATTERN` rồi xuống dòng viết tiếp `r"|..."`). Sửa bằng thêm toán tử `+` tường minh ở mọi vị trí.
+
+**Bước xanh**: 25/25 test `reference_extractor`.
+
+**Regression thật phát hiện khi chạy full suite** — đúng loại lỗi cần tìm:
+```
+FAILED tests/extraction/test_relation_llm.py::test_supersedes_trigger_with_cross_doc_citation_produces_candidate
+        AssertionError: assert '123-2020-nd-cp_dieu-10' == 'nghi-dinh-123-2020-nd-cp_dieu-10'
+2 failed, 269 passed
+```
+`find_relation_candidates` (T013) **tái dùng nguyên** `extract_references` nên **thừa hưởng** fix — đây chính là *mục đích* của việc tái dùng (Điều 1 constitution), không phải regression. Đã cập nhật assert + ghi rõ lý do.
+
+**Kết quả cuối**: **270 passed, 1 failed** (chỉ còn fail `.env` cục bộ đã biết).
+
+## 7. Dry-run T026 trên toàn corpus (chưa ghi DB)
+
+Trước khi đụng dữ liệu thật, chạy so sánh extractor cũ vs mới trên toàn bộ 61,068 file:
+
+| | Cũ (trước T026) | Mới (sau T026) |
+|---|---|---|
+| Edge duy nhất | **37,875** ← *khớp chính xác số trong Neo4j* | **38,300** |
+| Trỏ tới Article thật | 39,599 lượt | 38,815 lượt |
+| External | 15,168 | 15,952 |
+| Self-reference | 54,220 | 47,645 |
+
+- **5,499** edge chỉ có ở bản mới (2,594 trỏ tới Article thật) · **5,074** edge chỉ có ở bản cũ, bị bỏ (2,912 trỏ tới Article thật).
+- Bản chất là **đổi chỗ**, không phải chỉ thêm. Ví dụ thật:
+```
+CŨ (sai):   01-2012-ttlt-tandtc-vksndtc-btp_dieu-16 -> 01-2012-ttlt-...-btp_dieu-10
+MỚI (đúng): 01-2012-ttlt-tandtc-vksndtc-btp_dieu-16 -> 16-2010-nd-cp_dieu-10
+```
+Câu `"Điều 10 Nghị định số 16/2010/NĐ-CP"` trước đây bị hiểu thành Điều 10 của *chính* Thông tư đó. Có cả **self-loop vô nghĩa** bị loại: `01-2013-ttlt-bnv-bqp_dieu-13 -> 01-2013-ttlt-bnv-bqp_dieu-13`.
+- Chi phí CPU không đáng kể: parse 61,068 file 4,7s + extract cả 2 phiên bản 4,8s. Toàn bộ chi phí migration nằm ở ghi Neo4j.
+- **Việc khớp đúng 37,875 với số thật trong Neo4j** là bằng chứng dry-run mô phỏng đúng thực tế, không phải tính nhầm.
+
+## 8. T027 — script migration (TDD, chưa chạy trên dữ liệu thật)
+
+**Vì sao cần migration riêng, không chỉ "chạy lại ingest"**: `upsert.py` ghi bằng MERGE (idempotent — điều kiện sống còn của batch/savepoint, ADR-002). Mặt trái: canh REFERENCES **sai** do extractor cũ tạo ra **không tự biến mất** khi chạy lại ingest → graph sẽ chứa **cả** edge đúng (mới) **lẫn** edge sai (cũ), **tệ hơn** trước khi sửa.
+
+`scripts/migrate_references.py` — 4 bước, thứ tự bắt buộc:
+1. Xoá toàn bộ REFERENCES: `CALL (r) { DELETE r } IN TRANSACTIONS OF 10000 ROWS` (37,875 edge trong **một** transaction dễ làm hết heap Neo4j Community).
+2. Xoá Article external placeholder **đã thành mồ côi**: hai ràng buộc bắt buộc — `a.is_external = true` (không bao giờ xoá Article thật có `chroma_id`) **và** `COUNT { (a)--() } = 0`. **Không** dùng `DETACH DELETE` vì placeholder đang là đích của AMENDS/SUPERSEDES/CONFLICTS_WITH (T013) phải được giữ.
+3. Reset checkpoint. **Bỏ bước này là bug nghiêm trọng**: `run_ingest` đọc thấy checkpoint cũ ("đã xong batch cuối") và **không làm gì cả** → migration "thành công" trong im lặng mà graph mất hết REFERENCES.
+4. Chạy lại `run_ingest` — tạo lại REFERENCES bằng extractor mới, đồng thời ghi `Document.title/so_hieu/loai_vb` (T025) cho 3,203 Document.
+
+**An toàn**: mặc định **DRY-RUN**, phải `--apply` tường minh mới thay đổi dữ liệu (script duy nhất trong dự án xoá dữ liệu thật). `reingest` thất bại thì exception nổi lên nguyên vẹn, **không** báo "xong" — vì lúc đó graph đang ở trạng thái đã xoá nhưng chưa tạo lại hết.
+
+**Bước đỏ**: `ModuleNotFoundError: No module named 'scripts.migrate_references'` → implement → **8/8 xanh** ngay lần đầu (8 test tập trung vào an toàn: dry-run không ghi gì, thứ tự 4 bước, chỉ xoá node mồ côi, không swallow lỗi re-ingest).
+
+**Verify Cypher bằng `EXPLAIN` trên Neo4j thật** (không thực thi) — `Neo4j version: 5.26.28`, cả 2 lệnh xoá + 5 câu đếm đều `OK`.
+
+**Dry-run trên graph thật**:
+```
+chi so                          truoc          sau
+references                     37,875       37,875
+external_placeholder            8,427        8,427
+document_co_so_hieu                 0            0
+article_that                   60,679       60,679
+article_co_chroma_id           60,679       60,679
+```
+
+**Kiểm tra rủi ro với bộ eval trước khi đề xuất chạy**: 26/32 câu có `relationship_path`; **2 câu** (`mh-014`, `mh-030`) có bước REFERENCES không còn tồn tại sau T026 — và `mh-030` chính là chuỗi self-ref **sai** đã phát hiện (`_dieu-24 -> _dieu-16 -> _dieu-10`), tức `relationship_path` của câu đó vốn dựng trên edge **không tồn tại thật**. Lưu ý: T017 chấm theo `expected_article_ids`, không theo `relationship_path`, nên có thể vẫn pass.
+
+**TRẠNG THÁI**: đã hỏi Khang 2 câu (có chạy migration ngay không / xử lý 2 câu eval thế nào) — **chưa nhận trả lời**, nên **KHÔNG chạy `--apply`**. Graph giữ nguyên trạng thái cũ.
+
+## 9. Số liệu tổng hợp phiên này
+
+| Hạng mục | Trước | Sau |
+|---|---|---|
+| Term / DEFINES / USES_TERM | 5,352 / 6,005 / 108,723 | **6,104 / 6,872 / 113,888** |
+| `extract_terms.py` thời gian chạy | >50 phút (chưa xong) | **~8,5 phút** |
+| Trích dẫn resolve cross-doc | 547 (0,47%) | **~7,300** (theo dry-run, chờ migration) |
+| Edge REFERENCES duy nhất | 37,875 | **38,300** (chờ migration) |
+| `Document` có `so_hieu`/`loai_vb` | 0 | **3,203** (chờ migration) |
+| Test suite | 228 passed / 1 failed | **270 passed / 1 failed** |
+
+## 10. File tạo/sửa trong phiên này
+
+**Mới**: `app/extraction/doc_identity.py` · `scripts/migrate_references.py` · `tests/extraction/test_doc_identity.py` · `tests/test_migrate_references.py`
+**Sửa**: `app/extraction/term_extractor.py` (trigger + hiệu năng) · `app/extraction/reference_extractor.py` (T026) · `app/graph_store/upsert.py` (identity) · `app/ingest.py` (`doc_identity_for_file`) · `tests/extraction/test_term_extractor.py` · `tests/extraction/test_reference_extractor.py` · `tests/extraction/test_relation_llm.py` · `tests/graph_store/test_upsert.py` · `tests/test_ingest.py` · `docs/thuat-ngu-ky-thuat.md` (thêm mục 6-9) · `TIEN_DO.md` · `CHECKLIST-GRAPHRAG-DUYET.md`
+
+**Commit**: `9882047` (T013) · `243e81b` (T017+ADR-004) · `2a3fe73` (docs ĐỢT 9-10) · `71bdc5f` (T012b) · `ac3354a` (T025) · `4bc2201` (T026) · `6386b24` (T027 script)
