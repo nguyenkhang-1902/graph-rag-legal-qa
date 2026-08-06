@@ -96,6 +96,112 @@ def _build_parsed_without_chapters() -> ParsedDocument:
     )
 
 
+# --- T025: Document.title/so_hieu/loai_vb tu DocIdentity -------------------
+# `Document.title` RONG tren toan bo graph (gap tu DOT 3) va corpus KHONG
+# chua tieu de van ban - chi suy duoc tu ten file qua doc_identity.py (xem
+# module docstring cua no). Cac test duoi ghim: khi truyen `identity`,
+# upsert_document PHAI ghi ca so_hieu/loai_vb; khi KHONG truyen, hanh vi cu
+# giu nguyen (khong ghi de gia tri cu bang null).
+
+
+def _document_call(mock_client):
+    """(query, params) cua lan goi Document (luon la lan goi DAU TIEN)."""
+    call = mock_client.run.call_args_list[0]
+    return call.args[0], call.kwargs
+
+
+def test_upsert_document_with_identity_writes_so_hieu_and_loai_vb():
+    from app.extraction.doc_identity import build_doc_identity
+
+    client = _make_mock_client()
+    parsed = _build_parsed_without_chapters()
+    identity = build_doc_identity("19", "2016", "tt-bxd")
+
+    upsert_document(client, parsed, batch_id="batch-001", identity=identity)
+
+    query, params = _document_call(client)
+    assert "d.so_hieu = $so_hieu" in query
+    assert "d.loai_vb = $loai_vb" in query
+    assert params["so_hieu"] == "19/2016/TT-BXD"
+    assert params["loai_vb"] == "Thông tư"
+
+
+def test_upsert_document_with_identity_falls_back_to_synthesized_title():
+    # `parse_article_chunk` (duong ingest that) LUON de title rong - luc do
+    # dung chi danh chuan tu identity ("Thông tư 19/2016/TT-BXD").
+    from app.extraction.doc_identity import build_doc_identity
+
+    client = _make_mock_client()
+    parsed = ParsedDocument(doc_id="19-2016-tt-bxd", title="", chapters=[], articles=[])
+
+    upsert_document(
+        client,
+        parsed,
+        batch_id="batch-001",
+        identity=build_doc_identity("19", "2016", "tt-bxd"),
+    )
+
+    _query, params = _document_call(client)
+    assert params["title"] == "Thông tư 19/2016/TT-BXD"
+
+
+def test_upsert_document_prefers_real_parsed_title_over_synthesized_one():
+    # Neu mot ngay nao do co tieu de van xuoi THAT (vd `parse_document()`
+    # tren input mot-file-mot-van-ban), tieu de do PHAI thang chi danh chuan
+    # sinh ra tu so hieu - identity chi la fallback, khong ghi de du lieu
+    # tot hon.
+    from app.extraction.doc_identity import build_doc_identity
+
+    client = _make_mock_client()
+    parsed = _build_parsed_without_chapters()  # title = "Nghi Dinh Test"
+
+    upsert_document(
+        client,
+        parsed,
+        batch_id="batch-001",
+        identity=build_doc_identity("19", "2016", "tt-bxd"),
+    )
+
+    _query, params = _document_call(client)
+    assert params["title"] == "Nghi Dinh Test"
+
+
+def test_upsert_document_with_unknown_loai_vb_sends_none_not_guess():
+    # Ma hieu Quoc hoi (qh13) khong xac dinh duoc loai van ban - phai gui
+    # None (Cypher xoa thuoc tinh) thay vi doan bua "Luật".
+    from app.extraction.doc_identity import build_doc_identity
+
+    client = _make_mock_client()
+    parsed = ParsedDocument(doc_id="16-2012-qh13", title="", chapters=[], articles=[])
+
+    upsert_document(
+        client,
+        parsed,
+        batch_id="batch-001",
+        identity=build_doc_identity("16", "2012", "qh13"),
+    )
+
+    _query, params = _document_call(client)
+    assert params["loai_vb"] is None
+    assert params["title"] == "16/2012/QH13"
+
+
+def test_upsert_document_without_identity_does_not_touch_so_hieu_or_loai_vb():
+    # Khong co identity -> KHONG duoc dua so_hieu/loai_vb vao query. Neu
+    # dua vao voi gia tri null, mot lan chay khong co identity se AM THAM
+    # XOA so_hieu/loai_vb da ghi dung o lan chay truoc.
+    client = _make_mock_client()
+    parsed = _build_parsed_without_chapters()
+
+    upsert_document(client, parsed, batch_id="batch-001")
+
+    query, params = _document_call(client)
+    assert "so_hieu" not in query
+    assert "loai_vb" not in query
+    assert "so_hieu" not in params
+    assert "loai_vb" not in params
+
+
 # --- Case 1: MERGE cho moi loai node/canh, khong CREATE --------------------
 
 

@@ -36,6 +36,7 @@ import time
 from pathlib import Path
 
 from app import config
+from app.extraction.doc_identity import DocIdentity, identity_from_doc_prefix
 from app.extraction.reference_extractor import extract_references
 from app.extraction.slugify import slugify_doc_name
 from app.extraction.structure_parser import (
@@ -198,13 +199,27 @@ def parse_file(file_path: Path) -> tuple[str, ParsedDocument]:
     return text, parsed
 
 
+def doc_identity_for_file(file_path: Path) -> DocIdentity | None:
+    """`DocIdentity` (T025) suy tu TEN FILE, hoac None khi ten file khong
+    khop dang "{so}_{nam}_{ma-hieu}_{so_dieu}.md".
+
+    Tach rieng khoi `parse_file` (khong doi signature cua no) vi
+    `parse_file` con duoc dung boi `detect_and_dedupe_collisions` VA
+    `scripts/backfill_embeddings.py` - ca hai khong can identity, doi
+    signature se buoc sua ca hai noi khong vi ly do gi."""
+    doc_prefix, _so_dieu = parse_filename_doc_prefix_and_so_dieu(file_path)
+    return identity_from_doc_prefix(doc_prefix)
+
+
 def _ingest_one_file(client: Neo4jClient, file_path: Path, batch_index: int) -> None:
     """Doc + parse + upsert MOT file (= MOT Dieu, xem task-2f-brief.md), roi
     extract + upsert cac trich dan REFERENCES cua Dieu do."""
     _text, parsed = parse_file(file_path)
 
     batch_id = f"batch-{batch_index:04d}"
-    upsert_document(client, parsed, batch_id=batch_id)
+    upsert_document(
+        client, parsed, batch_id=batch_id, identity=doc_identity_for_file(file_path)
+    )
 
     for article in _all_articles(parsed):
         references = extract_references(

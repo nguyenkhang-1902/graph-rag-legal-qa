@@ -21,6 +21,7 @@ GIA TRI (id, ten, noi dung...) moi luon di qua $param.
 """
 from __future__ import annotations
 
+from app.extraction.doc_identity import DocIdentity
 from app.extraction.reference_extractor import ExtractedReference
 from app.extraction.structure_parser import Article, Chapter, ParsedDocument
 from app.graph_store.neo4j_client import Neo4jClient
@@ -28,6 +29,18 @@ from app.graph_store.neo4j_client import Neo4jClient
 _DOCUMENT_QUERY = (
     "MERGE (d:Document {doc_id: $doc_id}) "
     "SET d.title = $title, d.batch_id = $batch_id"
+)
+
+# Bien the T025: ghi them so_hieu/loai_vb khi caller truyen `DocIdentity`
+# (suy tu TEN FILE - xem app/extraction/doc_identity.py). PHAI la mot query
+# RIENG, khong phai them "SET d.so_hieu = $so_hieu" vao _DOCUMENT_QUERY voi
+# gia tri null: mot lan chay KHONG co identity se AM THAM XOA so_hieu/
+# loai_vb da ghi dung o lan chay truoc (SET x = null trong Cypher = xoa
+# thuoc tinh). Xem test_upsert_document_without_identity_does_not_touch_...
+_DOCUMENT_WITH_IDENTITY_QUERY = (
+    "MERGE (d:Document {doc_id: $doc_id}) "
+    "SET d.title = $title, d.batch_id = $batch_id, "
+    "d.so_hieu = $so_hieu, d.loai_vb = $loai_vb"
 )
 
 _CHAPTER_QUERY = (
@@ -217,7 +230,10 @@ def upsert_relations(
 
 
 def upsert_document(
-    client: Neo4jClient, parsed: ParsedDocument, batch_id: str
+    client: Neo4jClient,
+    parsed: ParsedDocument,
+    batch_id: str,
+    identity: DocIdentity | None = None,
 ) -> None:
     """Ghi toan bo phan cap Document -> Chapter (optional) -> Article ->
     Clause (optional) cua mot ParsedDocument (structure_parser.py, T008)
@@ -228,22 +244,41 @@ def upsert_document(
     ParsedDocument (structure_parser.py khong biet gi ve khai niem batch),
     nen truyen rieng o day thay vi doc tu `parsed`.
 
-    `so_hieu`/`loai_vb`/`ngay_hieu_luc`/`source_file` cua Document CHUA
-    duoc set o day: structure_parser.py (T008) khong san xuat cac gia tri
-    nay (ngoai pham vi cua no theo chinh thiet ke T008), nen o day KHONG
-    bia gia tri placeholder cho chung - day la mot gap DA BIET, khong phai
-    bug (xem task-2d-report.md).
+    `identity` (T025, tuy chon): `DocIdentity` suy tu TEN FILE (xem
+    app/extraction/doc_identity.py) - khi duoc truyen, ghi them `so_hieu` va
+    `loai_vb` cho Document node, va dung `identity.title` (chi danh chuan,
+    vd "Thong tu 19/2016/TT-BXD") lam title KHI `parsed.title` rong.
+    `parsed.title` khong rong thi THANG (tieu de van xuoi that - neu mot
+    ngay nao do co - luon tot hon chi danh sinh ra tu so hieu).
+
+    Khi KHONG truyen `identity`, query dung la `_DOCUMENT_QUERY` cu - KHONG
+    gui so_hieu/loai_vb = null (se am tham xoa gia tri dung da ghi truoc do,
+    xem ghi chu tren `_DOCUMENT_WITH_IDENTITY_QUERY`).
+
+    `ngay_hieu_luc`/`source_file` cua Document VAN CHUA duoc set: khong suy
+    ra duoc tu ten file lan noi dung Dieu don le (corpus khong chua ngay
+    hieu luc o cap van ban) - gap DA BIET, khong phai bug.
 
     Idempotent: goi lai ham nay nhieu lan voi CUNG mot ParsedDocument khong
     tao them node/canh BELONGS_TO trung lap (moi thao tac deu la MERGE,
     khong bao gio CREATE).
     """
-    client.run(
-        _DOCUMENT_QUERY,
-        doc_id=parsed.doc_id,
-        title=parsed.title,
-        batch_id=batch_id,
-    )
+    if identity is None:
+        client.run(
+            _DOCUMENT_QUERY,
+            doc_id=parsed.doc_id,
+            title=parsed.title,
+            batch_id=batch_id,
+        )
+    else:
+        client.run(
+            _DOCUMENT_WITH_IDENTITY_QUERY,
+            doc_id=parsed.doc_id,
+            title=parsed.title or identity.title,
+            batch_id=batch_id,
+            so_hieu=identity.so_hieu,
+            loai_vb=identity.loai_vb,
+        )
 
     for chapter in parsed.chapters:
         _upsert_chapter(client, chapter, parsed.doc_id)

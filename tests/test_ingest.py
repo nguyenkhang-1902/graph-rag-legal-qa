@@ -188,6 +188,64 @@ def _article_kwargs_seen(mock_client: MagicMock) -> list[dict]:
     ]
 
 
+def _document_calls(mock_client: MagicMock) -> list[dict]:
+    """kwargs cua cac lan goi upsert_document (nhan dien qua cap doc_id +
+    title, giong _doc_id_kwargs_seen nhung tra ve TOAN BO kwargs)."""
+    return [
+        call.kwargs
+        for call in mock_client.run.call_args_list
+        if "doc_id" in call.kwargs and "title" in call.kwargs
+    ]
+
+
+def test_run_ingest_writes_document_so_hieu_loai_vb_and_title_from_filename(tmp_path):
+    # T025: `Document.title` RONG tren toan bo graph vi corpus khong chua
+    # tieu de van ban - suy tu TEN FILE qua doc_identity.py. Test nay ghim
+    # ca duong day tu ten file -> Cypher params.
+    data_dir = tmp_path / "corpus"
+    _write_article_chunk_file(
+        data_dir, "19_2016_tt-bxd_1.md", 1, "Phạm vi điều chỉnh", "Nội dung."
+    )
+
+    mock_client = MagicMock()
+    mock_client.run.return_value = []
+    run_ingest(
+        data_dir,
+        batch_size=1,
+        client=mock_client,
+        state_store=IngestCheckpointStore(tmp_path / "state" / "cp.json"),
+    )
+
+    calls = _document_calls(mock_client)
+    assert len(calls) == 1
+    assert calls[0]["doc_id"] == "19-2016-tt-bxd"
+    assert calls[0]["so_hieu"] == "19/2016/TT-BXD"
+    assert calls[0]["loai_vb"] == "Thông tư"
+    assert calls[0]["title"] == "Thông tư 19/2016/TT-BXD"
+
+
+def test_run_ingest_malformed_doc_prefix_still_ingests_without_identity(tmp_path):
+    # 1/3,207 doc_prefix that khong khop "{so}_{nam}_{ma}" ("21-lct_hdnn8").
+    # Van phai ingest binh thuong (title rong nhu truoc), KHONG raise -
+    # mot van ban di thuong khong duoc lam do ca pipeline 61k file.
+    data_dir = tmp_path / "corpus"
+    _write_article_chunk_file(data_dir, "21-lct_hđnn8_3.md", 3, "Tiêu đề", "Nội dung.")
+
+    mock_client = MagicMock()
+    mock_client.run.return_value = []
+    run_ingest(
+        data_dir,
+        batch_size=1,
+        client=mock_client,
+        state_store=IngestCheckpointStore(tmp_path / "state" / "cp.json"),
+    )
+
+    calls = _document_calls(mock_client)
+    assert len(calls) == 1
+    assert "so_hieu" not in calls[0]
+    assert calls[0]["title"] == ""
+
+
 def test_run_ingest_two_files_same_doc_prefix_merge_into_same_doc_id(tmp_path):
     data_dir = tmp_path / "corpus"
     _write_article_chunk_file(
