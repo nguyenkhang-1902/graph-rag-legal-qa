@@ -277,9 +277,11 @@ def run_migration(
     apply: bool = False,
     reingest: Callable[..., None] = run_ingest,
     reset_checkpoint: Callable[..., None] = _reset_checkpoint,
+    resume: bool = False,
     real_doc_ids: set[str] | None = None,
     stale_doc_ids: list[str] | None = None,
     reconcile_chroma: Callable[[Neo4jClient], int] = reconcile_chroma_with_neo4j,
+    checkpoint_exists: Callable[[], bool] = lambda: Path(DEFAULT_STATE_FILE).exists(),
 ) -> dict[str, dict[str, int]]:
     """Chay migration (hoac chi bao cao khi `apply=False`).
 
@@ -323,21 +325,46 @@ def run_migration(
         )
         return {"truoc": truoc, "sau": truoc}
 
-    # Chan tham hoa TRUOC khi xoa bat ky thu gi.
-    _check_stale_deletion_is_plausible(real_doc_ids, stale_doc_ids)
+    if resume:
+        # BAY THAT (2026-08-06): buoc 1-4 la XOA + reset checkpoint. Neu
+        # migration bi dung giua buoc 5 (re-ingest, ~2h tren corpus that) roi
+        # nguoi dung chay lai `--apply`, no se XOA SACH REFERENCES vua tao va
+        # reset checkpoint -> lam lai tu dau, mat toan bo tien do.
+        #
+        # Khong co checkpoint = hoac migration chua tung chay, hoac da chay
+        # xong. Ca hai truong hop `--resume` deu SAI: no bo qua buoc xoa, nen
+        # neu REFERENCES cu van con thi graph se lan ca canh dung va canh sai
+        # - dung cai te nhat ma migration nay sinh ra de tranh.
+        if not checkpoint_exists():
+            raise RuntimeError(
+                "--resume nhung khong co checkpoint tai "
+                f"{DEFAULT_STATE_FILE}: nghia la migration chua tung chay "
+                "(REFERENCES cu chua bi xoa) hoac da chay xong. Bo qua buoc "
+                "xoa trong tinh huong nay se de lai canh REFERENCES SAI lan "
+                "voi canh dung. TU CHOI chay - dung `--apply` (khong "
+                "`--resume`) de chay tu dau."
+            )
+        logger.info(
+            "RESUME: bo qua buoc 1-4 (xoa REFERENCES / placeholder / Document "
+            "cu + reset checkpoint) - chi chay lai re-ingest tu checkpoint roi "
+            "doi chieu Chroma"
+        )
+    else:
+        # Chan tham hoa TRUOC khi xoa bat ky thu gi.
+        _check_stale_deletion_is_plausible(real_doc_ids, stale_doc_ids)
 
-    logger.info("buoc 1/5: xoa toan bo canh REFERENCES (theo lo)")
-    client.run(DELETE_REFERENCES_QUERY)
+        logger.info("buoc 1/6: xoa toan bo canh REFERENCES (theo lo)")
+        client.run(DELETE_REFERENCES_QUERY)
 
-    logger.info("buoc 2/5: xoa Article external placeholder da thanh mo coi")
-    client.run(DELETE_ORPHAN_EXTERNAL_ARTICLES_QUERY)
+        logger.info("buoc 2/6: xoa Article external placeholder da thanh mo coi")
+        client.run(DELETE_ORPHAN_EXTERNAL_ARTICLES_QUERY)
 
-    logger.info("buoc 3/6: xoa %d Document cu + cay con", len(stale_doc_ids))
-    if stale_doc_ids:
-        client.run(DELETE_STALE_DOCUMENT_SUBTREE_QUERY, doc_ids=stale_doc_ids)
+        logger.info("buoc 3/6: xoa %d Document cu + cay con", len(stale_doc_ids))
+        if stale_doc_ids:
+            client.run(DELETE_STALE_DOCUMENT_SUBTREE_QUERY, doc_ids=stale_doc_ids)
 
-    logger.info("buoc 4/6: reset checkpoint ingest")
-    reset_checkpoint()
+        logger.info("buoc 4/6: reset checkpoint ingest")
+        reset_checkpoint()
 
     logger.info("buoc 5/6: chay lai ingest (tao lai REFERENCES + T025 metadata)")
     reingest(data_dir, client=client)
@@ -381,6 +408,17 @@ def build_arg_parser() -> argparse.ArgumentParser:
             "in bao cao."
         ),
     )
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help=(
+            "Tiep tuc mot migration BI DUNG GIUA CHUNG: bo qua buoc xoa "
+            "(1-4), chi chay lai re-ingest tu checkpoint + doi chieu Chroma. "
+            "Dung co nay khi da chay --apply truoc do va bi ngat (tat may, "
+            "Ctrl+C) - chay lai --apply khong co --resume se XOA SACH "
+            "REFERENCES vua tao va lam lai tu dau."
+        ),
+    )
     return parser
 
 
@@ -391,7 +429,9 @@ def main() -> None:
     args = build_arg_parser().parse_args()
     client = Neo4jClient()
     try:
-        report = run_migration(args.data_dir, client=client, apply=args.apply)
+        report = run_migration(
+            args.data_dir, client=client, apply=args.apply, resume=args.resume
+        )
     finally:
         client.close()
 

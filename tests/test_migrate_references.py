@@ -414,3 +414,76 @@ def test_reingest_failure_propagates_and_is_not_swallowed():
             real_doc_ids={"co-that"},
             stale_doc_ids=[],
         )
+
+
+# --- --resume: tiep tuc mot migration bi dung giua chung ------------------
+# BAY THAT (2026-08-06): buoc 1-4 la XOA + reset checkpoint. Neu migration bi
+# dung giua buoc 5 (re-ingest) roi nguoi dung chay lai `--apply`, no se XOA
+# SACH REFERENCES vua tao + reset checkpoint -> lam lai tu dau, mat toan bo
+# tien do. `--resume` bo qua buoc 1-4, chi chay re-ingest (tu tiep tu
+# checkpoint) + doi chieu Chroma.
+
+
+def test_resume_skips_all_destructive_steps():
+    client = _mock_client()
+    reset = MagicMock()
+
+    run_migration(
+        "data/raw",
+        client=client,
+        apply=True,
+        resume=True,
+        reingest=MagicMock(),
+        reset_checkpoint=reset,
+        reconcile_chroma=lambda _c: 0,
+        real_doc_ids=_plausible_real_doc_ids(),
+        stale_doc_ids=["cu-khong-con"],
+        checkpoint_exists=lambda: True,
+    )
+
+    for q in _queries(client):
+        assert "DELETE" not in q.upper(), f"resume khong duoc xoa gi: {q}"
+    reset.assert_not_called()
+
+
+def test_resume_still_runs_reingest_and_reconcile():
+    client = _mock_client()
+    reingest = MagicMock()
+    reconciled = []
+
+    run_migration(
+        "data/raw",
+        client=client,
+        apply=True,
+        resume=True,
+        reingest=reingest,
+        reset_checkpoint=MagicMock(),
+        reconcile_chroma=lambda _c: reconciled.append(1) or 0,
+        real_doc_ids=_plausible_real_doc_ids(),
+        stale_doc_ids=[],
+        checkpoint_exists=lambda: True,
+    )
+
+    reingest.assert_called_once()
+    assert reconciled == [1]
+
+
+def test_resume_without_checkpoint_is_refused():
+    # Khong co checkpoint = hoac migration chua tung chay, hoac da xong. Ca
+    # hai truong hop `--resume` deu SAI: no bo qua buoc xoa, nen neu REFERENCES
+    # cu van con thi graph se lan ca canh dung va canh sai.
+    client = _mock_client()
+
+    with pytest.raises(RuntimeError, match="khong co checkpoint"):
+        run_migration(
+            "data/raw",
+            client=client,
+            apply=True,
+            resume=True,
+            reingest=MagicMock(),
+            reset_checkpoint=MagicMock(),
+            reconcile_chroma=lambda _c: 0,
+            real_doc_ids=_plausible_real_doc_ids(),
+            stale_doc_ids=[],
+            checkpoint_exists=lambda: False,
+        )
