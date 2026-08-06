@@ -9,6 +9,8 @@ module - khong the chi gan lai bien Python sau khi import.
 """
 import importlib
 
+import dotenv
+
 import app.config as config_module
 
 CONFIG_ENV_VARS = [
@@ -28,8 +30,22 @@ CONFIG_ENV_VARS = [
 
 
 def _reload_with_clean_env(monkeypatch):
-    """Xoa het bien env lien quan (tranh phu thuoc vao .env that co the
-    ton tai tren may dev), roi reload module de lay lai gia tri mac dinh."""
+    """Xoa het bien env lien quan roi reload module de lay lai gia tri mac dinh.
+
+    Chi delenv thoi la CHUA DU: `app/config.py` goi `load_dotenv()` o module
+    level, nen moi lan importlib.reload no se doc lai file `.env` va nap
+    nguoc cac gia tri vua bi xoa vao os.environ. `.env` la file untracked
+    rieng tung may dev (vi du may Khang dat INGEST_BATCH_SIZE=3), nen test
+    "defaults" hoa ra lai do gia tri cua may dev chu khong phai default
+    trong code -> fail `assert 3 == 200`. Vi vay phai vo hieu hoa
+    load_dotenv trong suot test.
+
+    Patch tren module `dotenv` chu KHONG phai `config_module.load_dotenv`:
+    `app/config.py` dung `from dotenv import load_dotenv`, nen moi lan
+    reload no gan lai ten do tu module `dotenv` - patch dat trong
+    `app.config` se bi chinh lan reload ke tiep ghi de mat.
+    """
+    monkeypatch.setattr(dotenv, "load_dotenv", lambda *args, **kwargs: False)
     for var in CONFIG_ENV_VARS:
         monkeypatch.delenv(var, raising=False)
     return importlib.reload(config_module)
