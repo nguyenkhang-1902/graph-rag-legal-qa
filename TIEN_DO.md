@@ -146,7 +146,7 @@
 
 ## 📍 Việc cần làm tiếp theo (đọc phần này trước khi bắt đầu phiên mới)
 
-1. ⏳ **MIGRATION T027 BỊ NGẮT GIỮA CHỪNG — TIẾP TỤC BẰNG `--resume`** (dừng lúc ~batch 96/306, 2026-08-06 17:00, Khang tan làm).
+1. ⏳ **MIGRATION T027 BỊ NGẮT GIỮA CHỪNG — TIẾP TỤC BẰNG `--resume`** (dừng sạch ở **batch 114/306 = 37,3%**, 2026-08-06 17:09, Khang tan làm — đã `TaskStop`, xác nhận không còn tiến trình python nào).
 
    **Mở Docker Desktop trước** (Neo4j phải reachable), rồi chạy ĐÚNG lệnh này:
    ```bash
