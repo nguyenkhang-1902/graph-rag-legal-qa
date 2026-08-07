@@ -144,6 +144,37 @@
 - [x] **"1 fail cũ không liên quan" hoá ra LÀ lỗi thật của test** — task nền (Khang bấm chạy) đã sửa xong. Ghi nhận này lặp lại suốt từ ĐỢT 5 đến ĐỢT 11 và **sai ở hai điểm**: không phải artifact môi trường mà là **test thiếu cô lập**, và không "không liên quan" vì `test_defaults_load_correctly` thực chất **không hề kiểm giá trị mặc định trong code** (mất tác dụng bảo vệ). Nguyên nhân: `importlib.reload` chạy lại `load_dotenv()` ở module level, nạp ngược `.env` của máy dev vào trước khi `os.getenv` chạy. Suite từ đây **xanh sạch**.
 - [ ] ⏳ **Migration đang chạy**: `INGEST_BATCH_SIZE=200 python -m scripts.migrate_references data/raw --apply`. Đã xong bước 1-3 (REFERENCES xoá sạch, 4 Document `ð` xoá, placeholder mồ côi xoá — còn 2 là đích AMENDS, giữ đúng theo thiết kế). Đang ở bước 5/6 (re-ingest). Đo nhịp thật: 1,000 file/108,6s ≈ 552 file/phút → ETA ~1h50.
 
+## 10. ✅ ĐỢT 13 — Migration T027 HOÀN TẤT + phát hiện lớn về đóng góp của traversal (2026-08-07)
+
+- [x] **Migration T027 chạy xong hoàn toàn** (`--resume` từ batch 115, tổng 303 batch). Docker Desktop phải khởi động lại thủ công (lặp lại sự cố ĐỢT 8 — không phải lỗi code). Pre-flight `detect_and_dedupe_collisions` mất ~2 phút vì cache đĩa nguội sau khi khởi động máy (đọc + giữ toàn bộ 61k nội dung file trong RAM, ~320MB).
+- [x] **Verify khớp CHÍNH XÁC bảng số liệu đã tính trước khi chạy** — đây là giá trị của việc tính trước:
+
+  | Chỉ số | Kỳ vọng | Thực tế | |
+  |---|---|---|---|
+  | Document | 3,201 | **3,201** | ✅ |
+  | Article thật | 60,568 | **60,568** | ✅ |
+  | Article thiếu `chroma_id` | 8 | **8** | ✅ |
+  | Chroma mồ côi bị xoá | 119 | **119** | ✅ |
+  | Term / AMENDS | 6,104 / 2 | **6,104 / 2** | ✅ giữ nguyên |
+  | REFERENCES | ~38,300 | 38,196 | chênh 104 — giải thích được |
+
+  Chênh 104 edge: dry-run chạy **trước** fix `ð` nên 2 cặp văn bản chưa gộp, đếm dư. Đúng chiều dự kiến, không phải lỗi.
+- [x] **`Document.title` giờ có thật**: `01-2009-tt-bnn` → `"Thông tư 01/2009/TT-BNN"`. Văn bản Quốc hội đúng thiết kế: `01-2011-qh13` → title chỉ là `"01/2011/QH13"`, `loai_vb=None` (không đoán). Đúng **1** Document không có `so_hieu` — `21-lct-hdnn8`, chính là doc_prefix duy nhất không khớp dạng `{số}_{năm}_{mã}`.
+- [x] **Backfill 8 Article mới** (~6s GPU). Xác nhận 3 chiều: Neo4j Article thật = Neo4j có `chroma_id` = Chroma count = **60,568**, khớp tuyệt đối.
+- [x] **T017 chạy lại: 90.6% / 93.1% / 0.917 — Y NGUYÊN, 0/32 câu đổi kết quả.** Đối chiếu từng câu với fixture cũ trong git, không chỉ so 3 con số tổng.
+- [x] **H3 có câu trả lời, KHÔNG cần sửa bộ eval**: `mh-030` **vốn đã fail từ TRƯỚC** migration (`all_found=False` ở cả hai lần đo) → `relationship_path` sai của nó chưa bao giờ ảnh hưởng điểm. `mh-014` pass cả hai lần. 3 câu vẫn fail: `mh-012`, `mh-013`, `mh-030`. ⚠️ Vẫn nên sửa **metadata** `relationship_path` của `mh-030` vì nó mô tả một chuỗi REFERENCES không tồn tại thật — lỗi tài liệu, không phải lỗi điểm số.
+- [x] 🚨 **PHÁT HIỆN LỚN — traversal gần như KHÔNG đóng góp vào Recall**. Việc điểm số không nhúc nhích dù migration đổi 2,594 edge đúng + loại 2,912 edge sai là tín hiệu đáng ngờ, nên đã đo tách bạch đóng góp của từng tầng trên 58 `expected_article_id`:
+
+  | Nguồn tìm ra | Số lượng | Tỉ lệ |
+  |---|---|---|
+  | Entry point (**dense thuần**, Chroma) | 53 | **91,4%** |
+  | **CHỈ** tìm được qua traversal | **1** | **1,7%** |
+  | Không tìm thấy | 4 | 6,9% |
+
+  **Strict recall chỉ dùng dense = 87,5%; có traversal = 90,6%.** Toàn bộ graph traversal đóng góp **+3,1 điểm %, đúng 1 câu** (`mh-011`).
+
+  Đây là vấn đề **trực tiếp với luận điểm cốt lõi của dự án** (User Story 1: "năng lực khác biệt cốt lõi của Graph RAG so với Hybrid RAG cũ"). Bộ 32 câu eval tuy soạn từ chuỗi REFERENCES thật, nhưng câu hỏi lại chứa đủ manh mối ngữ nghĩa để dense tìm thẳng ra **cả hai** Điều — nên không thực sự kiểm tra khả năng multi-hop. **Cần Khang quyết trước khi làm T018** (xem checklist mục I1) — trình bày T018 kiểu gì cũng phải trung thực với con số này.
+
 ## 📍 Việc cần làm tiếp theo (đọc phần này trước khi bắt đầu phiên mới)
 
 1. ⏳ **MIGRATION T027 BỊ NGẮT GIỮA CHỪNG — TIẾP TỤC BẰNG `--resume`** (dừng sạch ở **batch 114/306 = 37,3%**, 2026-08-06 17:09, Khang tan làm — đã `TaskStop`, xác nhận không còn tiến trình python nào).

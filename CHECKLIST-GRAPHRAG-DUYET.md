@@ -43,6 +43,29 @@
 - [x] **Sai tên hàm `get_or_create_collection` → hỏng thật trên dữ liệu thật.** Tên đúng là `get_chroma_collection`. Migration crash SAU khi xoá node Neo4j nhưng TRƯỚC khi xoá Chroma → để lại 119 bản ghi Chroma mồ côi. **Gốc rễ vì sao test không bắt được**: mọi test đều inject `delete_from_chroma` nên đường code mặc định chưa bao giờ được chạy (điểm mù dependency injection). Đã sửa bằng cách **đổi cơ chế** (đối chiếu Chroma↔Neo4j, idempotent, tự sửa mọi lệch) chứ không chỉ sửa tên, + thêm test kiểm chính đường mặc định bằng `inspect.getsource`. Chi tiết: `BAO_CAO_CHI_TIET_PHIEN_LAM_VIEC.md` mục 15.
 - [x] Đã dừng tiến trình `--apply` Khang tự chạy lúc 15:45 (nó nạp code trước khi có fix `ð` nên không thể ra trạng thái cuối đúng; dừng+chạy lại = 2h thay vì 3h30). Ghi lại để lần sau **thống nhất ai chạy lệnh dài** trước khi bắt đầu, tránh 2 tiến trình cùng ghi.
 
+## 🚨 ĐIỂM MỚI CẦN KHANG QUYẾT (2026-08-07, chặn T018)
+
+- [ ] **I1. Traversal gần như không đóng góp vào Recall — trình bày T018 thế nào?**
+
+  Đo thật sau migration, tách bạch từng tầng trên 58 `expected_article_id` của bộ 32 câu:
+
+  | Nguồn tìm ra | Số | Tỉ lệ |
+  |---|---|---|
+  | Entry point (dense thuần, Chroma) | 53 | **91,4%** |
+  | **CHỈ** qua traversal | **1** | **1,7%** |
+  | Không tìm thấy | 4 | 6,9% |
+
+  **Strict recall dense-only = 87,5% · có traversal = 90,6%** → graph đóng góp **+3,1 điểm %, đúng 1 câu** (`mh-011`).
+
+  Vấn đề: đây là luận điểm cốt lõi của cả dự án (User Story 1 — "năng lực khác biệt cốt lõi của Graph RAG"). Bộ 32 câu tuy soạn từ chuỗi REFERENCES thật nhưng câu hỏi chứa đủ manh mối để dense tìm thẳng ra cả hai Điều, nên **không thực sự kiểm tra khả năng multi-hop**. Ba hướng:
+  - **(a)** Soạn bộ câu hỏi multi-hop *đúng nghĩa*: chỉ giữ câu mà dense-only **thất bại** (đáp án thứ 2 không thể suy từ chữ trong câu hỏi, buộc phải đi theo trích dẫn). Trung thực nhất về mặt khoa học, nhưng cần soạn + Khang duyệt lại, và điểm số sẽ **thấp hơn** hiện tại.
+  - **(b)** Giữ nguyên bộ 32 câu, nhưng trong README/T018 **ghi rõ bảng tách tầng ở trên** và không tuyên bố traversal là nguồn tạo ra 90,6%. Rẻ, trung thực, nhưng luận điểm Graph RAG yếu.
+  - **(c)** Chấp nhận rằng giá trị của Graph RAG ở P1 **không nằm ở Recall** mà ở `citation_path`/provenance (FR-006) + metadata AMENDS/SUPERSEDES — đổi cách phát biểu SC-001/SC-002 cho khớp thực tế đo được.
+
+  Có thể kết hợp (a)+(c). **Không nên** trình bày 90,6% như bằng chứng cho giá trị của graph khi đã biết 87,5% đến từ dense thuần.
+
+- [ ] **I2. Sửa metadata `relationship_path` của `mh-030`** (không ảnh hưởng điểm số — câu này vốn đã fail từ trước migration). Nó mô tả chuỗi `_dieu-24 → _dieu-16 → _dieu-10` vốn là edge self-ref SAI, giờ không còn tồn tại. Lỗi tài liệu, nên sửa cho khỏi gây hiểu nhầm về sau.
+
 ## 🗂️ Lịch sử: nội dung H1/H2/H3 nguyên văn (đã chốt ở trên)
 
 - [x] **H1. Chạy migration T027 trên graph thật?** `python -m scripts.migrate_references data/raw --apply`. Cần thiết vì `upsert.py` dùng MERGE → edge sai cũ **không tự biến mất**; chạy lại ingest mà không migration sẽ cho graph chứa **cả** edge đúng lẫn edge sai (tệ hơn trước khi sửa). Sẽ xoá 37,875 REFERENCES + placeholder mồ côi rồi tạo lại. **Không mất dữ liệu nguồn** (tất cả tái tạo được từ `data/raw`); **KHÔNG đụng** Chroma/`chroma_id`, Term/DEFINES/USES_TERM, AMENDS/SUPERSEDES/CONFLICTS_WITH. Đã verify `EXPLAIN` trên Neo4j 5.26.28 + dry-run trên graph thật. Chưa rõ thời gian chạy (re-ingest 61k file). **Cho tới khi chạy, mọi số liệu đo được đều không phản ánh code hiện tại.**
