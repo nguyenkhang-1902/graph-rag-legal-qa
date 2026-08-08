@@ -1,0 +1,26 @@
+[
+  {
+    "name": "1. Dense-only",
+    "recall_at_k": 0.819672131147541,
+    "hits": 650,
+    "total": 793,
+    "mrr": 0.6671920975199663,
+    "elapsed_s": 0.0
+  },
+  {
+    "name": "2. Hybrid (BM25 + dense, RRF)",
+    "recall_at_k": 0.7919293820933165,
+    "hits": 628,
+    "total": 793,
+    "mrr": 0.6094997898276581,
+    "elapsed_s": 0.7820000000065193
+  },
+  {
+    "name": "3. Hybrid + Reranker",
+    "recall_at_k": 0.92,
+    "hits": 46,
+    "total": 50,
+    "mrr": 0.7966666666666667,
+    "elapsed_s": 144.71899999998277
+  }
+]

@@ -193,17 +193,49 @@
   1. **Tốc độ KHÔNG phải lý do đổi backend**: `rank_bm25` ở 61k chỉ mất **4,6 phút** cho 793 câu. Ước lượng ban đầu "có thể vài giờ" là SAI — và nếu không đo thì đã dẫn tới quyết định đổi backend không cần thiết.
   2. **`robertson` KHÔNG bám `rank_bm25` sát nhất** dù `rank_bm25.BM25Okapi` chính là biến thể Robertson — nó tệ nhất cả về khớp thứ hạng (57,8%) lẫn Recall (55,7%, THẤP HƠN `rank_bm25`). Nguyên nhân gần như chắc chắn: `rank_bm25` chặn IDF âm bằng `epsilon=0.25`, `bm25s` thì không.
   3. **Các biến thể `bm25s` khác cho Recall CAO HƠN rõ rệt**: 64,3–64,4% vs 58,0% = **+6,3 điểm %** — không chỉ "khác" mà "tốt hơn". Nhưng khớp thứ hạng chỉ ~66% → **không phải thay thế trong suốt**, đúng như cảnh báo trước khi đo.
-- [x] **CHỐT: dùng `rank_bm25` cho dòng baseline Hybrid+Reranker @67k của T018.** Lý do: mục đích của phương án (b) trong G1 là "phát triển thêm so với dự án cũ" — muốn vậy phải **cùng implementation**, chỉ khác quy mô. Đổi backend sẽ làm lệch CẢ HAI biến cùng lúc, đúng lỗi phương pháp vừa tránh được ở bộ câu hỏi (xem ĐỢT 13). Tốc độ đã chứng minh không phải rào cản.
+- [x] ~~**CHỐT: dùng `rank_bm25`** cho dòng baseline Hybrid+Reranker @67k~~ — ⚠️ **KẾT LUẬN NÀY ĐÃ ĐƯỢC ĐÍNH CHÍNH cùng ngày, xem ĐỢT 15.** Lý lẽ ban đầu: phương án (b) trong G1 là "phát triển thêm so với dự án cũ" nên phải **cùng implementation**, chỉ khác quy mô. Lý lẽ đó **bỏ sót một điều**: chính README dự án cũ viết *"cần đổi backend nếu scale vượt 10k văn bản"* — nên chạy `rank_bm25` ở 61k là chạy đúng cấu hình mà dự án cũ đã **tự tuyên bố không phù hợp**. Giữ nguyên dòng gạch ngang này để thấy quá trình suy nghĩ, không xoá.
 - [x] **Phần `bm25s` báo cáo như PHÁT HIỆN KỸ THUẬT RIÊNG** (không trộn vào bảng so sánh chính): README dự án cũ ghi *"cần đổi backend nếu scale vượt 10k văn bản"* — dự án này **đo được con số cụ thể** cho khuyến nghị đó (351ms/truy vấn ở 61k; backend thay thế nhanh hơn ~360x kèm +6,3 điểm % Recall). Đây là câu chuyện tốt cho README/CV: dự án trước nêu hạn chế, dự án sau lượng hoá nó.
 - [x] ⚠️ **Đọc bảng đúng cách**: 58,0% là **BM25 ĐƠN THUẦN**, KHÔNG so được với 93,3% của dự án cũ (đó là Hybrid = BM25 + dense + reranker). Đừng đặt hai số này cạnh nhau.
 - [x] `requirements/bench.txt` giữ cả hai thư viện (`rank-bm25==0.2.2` để chạy baseline, `bm25s==0.3.10` để tái lập phép đo này). 322/322 test pass.
+
+## 12. 📊 ĐỢT 15 — T018 baseline Hybrid+Reranker @67k: bắt được số liệu sai trước khi nó vào báo cáo (2026-08-08)
+
+- [x] **Phát hiện phiên trước đã làm gần xong T018 (b)**: `scripts/eval_hybrid_reranker_baseline.py` (409 dòng) + test (157 dòng) tồn tại nhưng **chưa commit** (untracked từ đầu phiên), kèm checkpoint chứa số liệu thật. Đã commit lại đầy đủ.
+- [x] ⚠️ **LỖI GIT CỦA CLAUDE**: dùng `git add -A` nên quét luôn các file chưa từng review — đúng điều mà skill `git-sync-helper` cảnh báo (*"add CÓ CHỌN LỌC, tránh `git add -A` mù quáng"*). Hậu quả: commit lẫn file checkpoint tạm. Đã sửa bằng `git rm --cached` + thêm `scripts/quality_fixtures/_*checkpoint.json` vào `.gitignore` (khớp quy ước dự án cũ vốn đã ignore `_zalo_recall_checkpoint.json`, `_llm_judge_checkpoint_*.json`), rồi amend (chưa push nên an toàn).
+- [x] 🚨 **BẮT ĐƯỢC SỐ LIỆU SAI trước khi nó vào báo cáo.** Kết quả chạy đầu trông rất đẹp nhưng **không hợp lệ** — nhìn cột `total`:
+
+  | Chiến lược | Recall@4 | Đo trên |
+  |---|---|---|
+  | Dense-only | 82,0% | **793** câu |
+  | Hybrid RRF | 79,2% | **793** câu |
+  | Hybrid + Reranker | 92,0% | **50** câu ⚠️ |
+
+  Script tự in ba dòng cạnh nhau như thể so sánh được. Nguyên nhân: **checkpoint không ghi số câu hỏi**, nên lần resume với `--limit-queries` mặc định (50) đã bỏ qua 2 chiến lược đã xong ở 793 câu rồi đo chiến lược thứ 3 ở 50 câu. 92,0% trở thành con số vô nghĩa — **đúng loại sai lệch mà cả T018 đang cố tránh**.
+
+  Đây **đúng cùng lớp bug** dự án ĐÃ HỌC và ĐÃ CHẶN ở `app/ingest.py` (`BatchSizeMismatchError`). Áp dụng y nguyên nguyên tắc: `QuestionCountMismatchError` + `_check_question_count_matches_checkpoint` — **phát hiện và TỪ CHỐI chạy**, không tự động hoà giải. Đổi `--limit-queries` mặc định 50 → **toàn bộ gold set** (mặc định 50 là cái bẫy cho một script *baseline*).
+- [x] ⚠️ **LỖI SỬA NỬA VỜI của chính bản fix trên** (chạy thật mới lộ ra): đổi default của `run_eval` từ 50 → `None` nhưng **quên default của argparse** → argparse vẫn truyền 50 vào, ghi đè giá trị mặc định của hàm; checkpoint lại ghi `n_questions=50`. Test cũ chỉ kiểm signature của hàm nên **không bắt được**. Đã thêm `test_cli_default_matches_function_default_for_limit_queries` so **trực tiếp** default CLI với default hàm — chặn đúng lớp lỗi này.
+- [x] **Số liệu thật đủ 793 câu, corpus 67k (sau migration)**:
+
+  | Chiến lược @67k | Recall@4 | MRR |
+  |---|---|---|
+  | Dense-only | **82,1%** (651/793) | 0,668 |
+  | Hybrid (BM25+dense, RRF) | **79,2%** (628/793) | 0,609 |
+  | Hybrid + Reranker | đang chạy (560/793, 88,2% hit tạm) | |
+
+- [x] 🔍 **PHÁT HIỆN: Hybrid KÉM HƠN Dense-only ở 67k** (79,2% vs 82,1%) — **ngược hẳn dự án cũ ở 10k** (Hybrid tốt hơn Dense). Giải thích khớp chính xác với phép đo BM25 ở ĐỢT 14: BM25 đơn thuần ở 61k chỉ đạt 58–64%, nên RRF gộp một nhánh yếu vào nhánh dense mạnh thành ra **kéo xuống**. Đây là **bằng chứng định lượng** cho hạn chế mà README dự án cũ chỉ nêu định tính (*"cần đổi backend nếu scale vượt 10k"*) — giá trị kể chuyện tốt cho README/CV.
+- [x] **ĐÍNH CHÍNH kết luận ĐỢT 14 (backend BM25)**: chuyển từ "chốt `rank_bm25`" sang **giữ `bm25s`**. Lý do đổi ý: (1) chính README dự án cũ nói phải đổi backend khi vượt 10k, nên `bm25s` ở 67k mới là làm đúng khuyến nghị đó; (2) kết luận "Hybrid kéo xuống" còn đúng **mạnh hơn** với `rank_bm25` (BM25 yếu hơn nữa: 58,0% vs 64,3%), nên chọn `bm25s` là cách trình bày **thận trọng hơn** cho baseline, không phải cách tô hồng. Sẽ thêm một dòng Hybrid dùng `rank_bm25` (không reranker, ~5 phút) để **lượng hoá** ảnh hưởng của backend thay vì để nó thành biến gây nhiễu ẩn.
 
 ## 📍 Việc cần làm tiếp theo (đọc phần này trước khi bắt đầu phiên mới)
 
 > Cập nhật lại 2026-08-07 (sau khi đối chiếu với git log + Neo4j thật — mục này trước đó bị lạc hậu so với ĐỢT 13, vẫn ghi "migration bị ngắt" dù đã chạy xong).
 
 1. 🚨 **CHẶN T018 — cần Khang chọn hướng ở I1 trước khi đo benchmark chính thức** (xem `CHECKLIST-GRAPHRAG-DUYET.md` mục I1, ĐỢT 13): graph traversal chỉ đóng góp **+3,1 điểm % / đúng 1 câu** vào Strict recall (dense-only đã 87,5%, có traversal 90,6%) — chưa thực sự chứng minh được luận điểm cốt lõi "Graph RAG hơn Hybrid RAG nhờ multi-hop". 3 hướng: (a) soạn lại bộ câu hỏi multi-hop *đúng nghĩa* (chỉ giữ câu dense-only thất bại) — trung thực nhất, điểm sẽ thấp hơn; (b) giữ bộ 32 câu, ghi rõ bảng tách tầng trong README/T018, không tuyên bố 90,6% là nhờ graph; (c) đổi luận điểm giá trị Graph RAG sang `citation_path`/provenance + AMENDS/SUPERSEDES thay vì Recall. Có thể kết hợp (a)+(c).
-2. **T018 prep đã có script, CHƯA chạy thật**: `scripts/bench_bm25_backends.py` (2026-08-07, so `rank_bm25` vs `bm25s` trên corpus 61k thật — `bm25s` đã cài, v0.3.10) — chưa có kết quả đo. Chạy `python -m scripts.bench_bm25_backends data/raw` để chọn backend TRƯỚC khi tự đo baseline Hybrid+Reranker mới ở 67k (hướng G1-b đã chốt).
+2. ✅ **T018 prep ĐÃ CHẠY THẬT (2026-08-08, ĐỢT 14)** — kết quả thô ở `scripts/quality_fixtures/bm25_backend_bench_61k.txt`. Chốt backend **`bm25s`** (xem đính chính trong ĐỢT 15). `rank_bm25` ở 61k = 351ms/truy vấn (4,6 phút cho 793 câu — không phải rào cản), nhưng `bm25s` nhanh hơn ~360x và Recall@4 cao hơn 6,3 điểm %; khớp thứ hạng giữa 2 backend chỉ ~66% nên **không** phải thay thế trong suốt.
+
+2b. **Baseline Hybrid+Reranker @67k (ĐỢT 15)** — Dense-only **82,1%** / Hybrid RRF **79,2%** trên đủ 793 câu; Hybrid+Reranker đang chạy. **Phát hiện: Hybrid kém hơn Dense-only** ở 67k (ngược dự án cũ ở 10k). Việc còn thiếu để đóng T018:
+   - (a) thêm dòng Hybrid dùng `rank_bm25` (không reranker, ~5 phút) để **lượng hoá** ảnh hưởng backend thay vì để nó thành biến gây nhiễu ẩn;
+   - (b) ⚠️ **CHƯA CÓ**: Graph RAG chạy trên **cùng 793 câu Zalo gold** — hiện `eval_graph_recall.py` chỉ chạy bộ 32 câu multi-hop. Không có dòng này thì **không có so sánh nào cả** (32 câu multi-hop vs 793 câu Zalo là hai benchmark khác nhau, xem ĐỢT 13). Cần mở rộng script nhận gold set Zalo, hoặc viết script riêng tái dùng `load_gold`/`recall_and_mrr` của `bench_bm25_backends.py`;
+   - (c) ghi rõ số 2k/10k của dự án cũ chỉ là **bối cảnh lịch sử**, không phải dòng so sánh trực tiếp.
 3. **T013 (`extract_relations.py`) vẫn CHƯA chạy full corpus** — đã kiểm tra trực tiếp Neo4j (2026-08-07): vẫn chỉ **2 AMENDS / 0 SUPERSEDES / 0 CONFLICTS_WITH** (từ lần chạy subset 3000 file ở ĐỢT 10, TRƯỚC migration T026). Giờ `doc_id` đã nhất quán (migration T026/T027 xong), độ phủ candidate dự kiến cao hơn hẳn con số ước tính cũ (~40/61k) — chạy `python -m scripts.extract_relations data/raw` để lấy số liệu thật, không dùng lại số cũ.
 4. **I2 (nhẹ, không chặn)**: sửa metadata `relationship_path` của câu `mh-030` trong `data/eval/multihop_eval_set.json` — đang mô tả chuỗi REFERENCES tự-tham-chiếu SAI đã bị migration T026 loại bỏ (câu này vốn đã fail từ trước migration nên không ảnh hưởng điểm số, chỉ là lỗi tài liệu).
 5. Chạy thử 1-2 câu hỏi qua `/chat` với thuật ngữ đã có (vd "Ngày", "Đơn PCT", hoặc 1 trong **6,104** Term) để xác nhận DEFINES/USES_TERM thực sự hoạt động trong traversal, không chỉ tồn tại trên lý thuyết — chưa làm.
