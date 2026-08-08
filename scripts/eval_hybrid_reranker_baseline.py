@@ -94,6 +94,54 @@ CHECKPOINT_PATH = Path(__file__).parent / "quality_fixtures" / "_hybrid_reranker
 CHECKPOINT_EVERY = 20
 
 
+class QuestionCountMismatchError(RuntimeError):
+    """Raise khi resume voi SO CAU HOI khac voi luc checkpoint duoc ghi.
+
+    BUG THAT da xay ra (2026-08-08): checkpoint khong ghi so cau hoi. Lan
+    chay dau do Dense-only + Hybrid tren 793 cau; lan resume sau chay voi
+    `--limit-queries` mac dinh (luc do la 50) -> script BO QUA 2 chien luoc
+    da xong (do o 793 cau) roi do chien luoc thu 3 o 50 cau, va IN CA BA
+    CANH NHAU nhu the so sanh duoc:
+        Dense-only          82.0%  (650/793)
+        Hybrid RRF          79.2%  (628/793)
+        Hybrid + Reranker   92.0%  ( 46/50)   <-- KHAC QUY MO
+    92.0% tro thanh con so vo nghia trong bang so sanh - dung loai sai lech
+    ma ca T018 dang co gang tranh.
+
+    Day DUNG cung lop bug ma du an DA HOC va DA CHAN o `app/ingest.py`
+    (`BatchSizeMismatchError`: checkpoint khong ghi `batch_size` -> resume
+    voi batch size khac se am tham bo sot hang nghin van ban). Ap dung y
+    nguyen nguyen tac do: PHAT HIEN va TU CHOI chay, KHONG tu dong hoa giai
+    (constitution Dieu 1 - "tha crash con hon lam sai trong im lang").
+    """
+
+
+def _check_question_count_matches_checkpoint(
+    checkpoint: dict, n_questions: int
+) -> None:
+    """So sanh so cau hoi cua lan chay nay voi so da ghi trong checkpoint.
+
+    Chi kiem khi day THUC SU la mot lan resume (da co chien luoc xong hoac
+    dang do). Checkpoint cu (ghi truoc khi truong `n_questions` ton tai)
+    khong co truong nay -> khong the so sanh tu du lieu khong co, bo qua
+    (giong cach ingest.py xu ly checkpoint cu thieu `batch_size`)."""
+    is_resume = bool(checkpoint.get("completed")) or checkpoint.get("in_progress")
+    if not is_resume:
+        return
+    recorded = checkpoint.get("n_questions")
+    if recorded is None:
+        return
+    if recorded != n_questions:
+        raise QuestionCountMismatchError(
+            f"so cau hoi KHONG khop checkpoint: checkpoint duoc ghi voi "
+            f"{recorded} cau, nhung lan chay nay dang dung {n_questions} cau. "
+            "Ket qua cac chien luoc se duoc do o HAI QUY MO KHAC NHAU roi in "
+            "canh nhau nhu the so sanh duoc - con so vo nghia. TU CHOI chay "
+            f"tiep. Hay dung lai --limit-queries cho ra {recorded} cau, hoac "
+            "chay lai tu dau bang --restart."
+        )
+
+
 def _load_checkpoint() -> dict:
     if CHECKPOINT_PATH.is_file():
         return json.loads(CHECKPOINT_PATH.read_text(encoding="utf-8"))
@@ -265,7 +313,12 @@ def run_eval(
     data_dir: str | Path,
     *,
     limit_docs: int | None = None,
-    limit_queries: int | None = 50,
+    # None = TOAN BO gold set. Mac dinh cu la 50 - mot cai bay cho script
+    # BASELINE: chay khong tham so se ra con so tren 50 cau roi bi hieu la
+    # baseline chinh thuc (da that su xay ra, xem QuestionCountMismatchError).
+    # Baseline phai mac dinh do toan bo, giong `eval_zalo_recall.py` cua du an
+    # cu (`--limit` la tuy chon).
+    limit_queries: int | None = None,
     k: int = DEFAULT_K,
     fetch_k: int = DEFAULT_FETCH_K,
     reranker_model: str = DEFAULT_RERANKER_MODEL,
@@ -312,6 +365,11 @@ def run_eval(
             len(checkpoint["completed"]), list(checkpoint["completed"]),
             "dang do 1 chien luoc" if checkpoint["in_progress"] else "khong co chien luoc dang do",
         )
+    # TRUOC khi chay bat ky chien luoc nao: tu choi neu quy mo lech (xem
+    # QuestionCountMismatchError). Neu khong, cac chien luoc se duoc do o hai
+    # quy mo khac nhau roi in canh nhau.
+    _check_question_count_matches_checkpoint(checkpoint, len(questions))
+    checkpoint["n_questions"] = len(questions)
 
     def _bm25_topk(query: str, k_: int) -> list[str]:
         query_tokens = tokenize(query)
@@ -380,7 +438,16 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("data_dir", type=str)
     parser.add_argument("--limit-docs", type=int, default=None)
-    parser.add_argument("--limit-queries", type=int, default=50)
+    # default=None = TOAN BO gold set (793 cau). Truoc day la 50 - cai bay da
+    # thuc su gay ra so lieu sai (xem QuestionCountMismatchError). Doi default
+    # cua `run_eval` MA KHONG doi default o day la sua nua voi: argparse van
+    # truyen 50 vao, ghi de gia tri mac dinh cua ham.
+    parser.add_argument(
+        "--limit-queries",
+        type=int,
+        default=None,
+        help="Chi do N cau dau (mac dinh: TOAN BO gold set) - chi dung de debug.",
+    )
     parser.add_argument("-k", type=int, default=DEFAULT_K)
     parser.add_argument("--fetch-k", type=int, default=DEFAULT_FETCH_K)
     parser.add_argument("--reranker-model", type=str, default=DEFAULT_RERANKER_MODEL)

@@ -10,6 +10,8 @@ verify bang chay that tren du lieu that (cung triet ly voi
 tests/retrieval/test_entry_point.py - "verify voi model that, khong doan
 cong thuc"), khong mock toan bo pipeline o day.
 """
+import pytest
+
 from scripts import eval_hybrid_reranker_baseline as ehrb
 from scripts.eval_hybrid_reranker_baseline import RRF_K, _evaluate, reciprocal_rank_fusion
 
@@ -155,3 +157,98 @@ def test_checkpoints_saved_every_n_questions(tmp_path, monkeypatch):
     # 5 cau, checkpoint_every=2 -> luu o cau 2, 4, va luu cuoi cung o cau 5
     # (het danh sach) + 1 lan nua khi ghi vao "completed".
     assert seen_next_index_values == [2, 4, 5, "final"]
+
+
+# --- Checkpoint PHAI ghi so cau hoi, va tu choi resume khi lech -----------
+# BUG THAT da xay ra (2026-08-08): checkpoint khong ghi so cau hoi. Lan chay
+# dau do Dense-only + Hybrid tren 793 cau; lan resume sau chay voi
+# `--limit-queries` mac dinh (50) -> script BO QUA 2 chien luoc da xong (do o
+# 793 cau) roi do chien luoc thu 3 o 50 cau, va IN CA BA CANH NHAU nhu the so
+# sanh duoc:
+#     Dense-only          82.0%  (650/793)
+#     Hybrid RRF          79.2%  (628/793)
+#     Hybrid + Reranker   92.0%  ( 46/50)   <-- KHAC QUY MO
+# 92.0% tro thanh mot con so vo nghia trong bang so sanh.
+#
+# Day DUNG cung lop bug ma du an DA HOC va DA CHAN o app/ingest.py
+# (`BatchSizeMismatchError`: checkpoint khong ghi `batch_size` -> resume voi
+# batch size khac se am tham bo sot hang nghin van ban). Ap dung y nguyen
+# nguyen tac do o day: PHAT HIEN va TU CHOI chay, khong tu dong hoa giai.
+
+
+def test_checkpoint_records_question_count():
+    from scripts.eval_hybrid_reranker_baseline import QuestionCountMismatchError  # noqa: F401
+
+    # Chi can symbol ton tai - hanh vi kiem o cac test duoi.
+
+
+def test_refuses_resume_when_question_count_differs(tmp_path, monkeypatch):
+    from scripts.eval_hybrid_reranker_baseline import (
+        QuestionCountMismatchError,
+        _check_question_count_matches_checkpoint,
+    )
+
+    checkpoint = {"completed": {"x": {}}, "in_progress": None, "n_questions": 793}
+    with pytest.raises(QuestionCountMismatchError, match="793"):
+        _check_question_count_matches_checkpoint(checkpoint, 50)
+
+
+def test_allows_resume_when_question_count_matches():
+    from scripts.eval_hybrid_reranker_baseline import (
+        _check_question_count_matches_checkpoint,
+    )
+
+    checkpoint = {"completed": {"x": {}}, "in_progress": None, "n_questions": 793}
+    _check_question_count_matches_checkpoint(checkpoint, 793)  # khong raise
+
+
+def test_old_checkpoint_without_question_count_is_not_blocked():
+    # Checkpoint ghi TRUOC khi truong nay ton tai -> khong the so sanh tu du
+    # lieu khong co. Bo qua kiem tra (giong cach ingest.py xu ly checkpoint cu
+    # khong co `batch_size`), khong pha vo moi checkpoint cu mot cach vo ich.
+    from scripts.eval_hybrid_reranker_baseline import (
+        _check_question_count_matches_checkpoint,
+    )
+
+    _check_question_count_matches_checkpoint({"completed": {"x": {}}}, 50)
+
+
+def test_fresh_checkpoint_is_never_blocked():
+    # Chua co chien luoc nao xong -> khong phai resume -> khong kiem tra.
+    from scripts.eval_hybrid_reranker_baseline import (
+        _check_question_count_matches_checkpoint,
+    )
+
+    _check_question_count_matches_checkpoint(
+        {"completed": {}, "in_progress": None, "n_questions": 793}, 50
+    )
+
+
+def test_default_limit_queries_is_all_questions():
+    # Mac dinh CU la 50 - mot cai bay cho script BASELINE: chay khong tham so
+    # se ra con so tren 50 cau roi bi hieu la baseline chinh thuc. Baseline
+    # phai mac dinh do TOAN BO gold set (None = khong gioi han), giong
+    # `eval_zalo_recall.py` cua du an cu (`--limit` la tuy chon).
+    import inspect
+
+    from scripts.eval_hybrid_reranker_baseline import run_eval
+
+    assert inspect.signature(run_eval).parameters["limit_queries"].default is None
+
+
+def test_cli_default_matches_function_default_for_limit_queries():
+    # BUG THAT tu gay ra (2026-08-08): doi default cua `run_eval` tu 50 -> None
+    # nhung QUEN default cua argparse -> argparse van truyen 50 vao, ghi de gia
+    # tri mac dinh cua ham. Chay CLI khong tham so van do tren 50 cau, va
+    # checkpoint ghi n_questions=50. "Sua nua voi" nhu vay khong test nao cu
+    # bat duoc vi test chi kiem signature cua ham.
+    import inspect
+
+    from scripts.eval_hybrid_reranker_baseline import build_arg_parser, run_eval
+
+    cli_default = build_arg_parser().parse_args(["data/raw"]).limit_queries
+    fn_default = inspect.signature(run_eval).parameters["limit_queries"].default
+    assert cli_default == fn_default, (
+        f"default CLI ({cli_default!r}) khac default ham ({fn_default!r}) - "
+        "CLI se ghi de gia tri mac dinh cua ham"
+    )
