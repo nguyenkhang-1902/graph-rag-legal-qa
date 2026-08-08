@@ -203,3 +203,43 @@ def test_upsert_embeddings_embeds_then_upserts_matching_batch(monkeypatch):
         embeddings=[[0.1, 0.2], [0.1, 0.2]],
         metadatas=metadatas,
     )
+
+
+# --- release_model: giai phong VRAM khi khong con can model -----------------
+# BUG THAT (2026-08-08): `scripts/eval_hybrid_reranker_baseline.py` chet o cau
+# 720/793 khi dang rerank. Do that luc dang chay: VRAM 5,904/6,144 MiB (96%),
+# GPU util 100%, khong throttle. Nguyen nhan: CA HAI model cung thuong tru tren
+# GPU - BGE-m3 (embedding, ~2.3GB) VA bge-reranker-v2-m3 (~2.3GB) - tren card
+# 6GB. Nhung den giai doan rerank thi MOI ket qua dense da duoc tinh san xong,
+# model embedding khong con can nua.
+
+
+def test_release_model_clears_cache():
+    import app.retrieval.embedder as emb
+
+    emb._model_cache["instance"] = object()  # gia lap model da tai
+    emb.release_model()
+    assert emb._model_cache["instance"] is None
+
+
+def test_release_model_is_safe_when_nothing_loaded():
+    # Goi khi chua tai model gi -> khong duoc raise (caller khong phai kiem
+    # tra truoc).
+    import app.retrieval.embedder as emb
+
+    emb._model_cache["instance"] = None
+    emb.release_model()
+    assert emb._model_cache["instance"] is None
+
+
+def test_release_model_does_not_touch_chroma_collection():
+    # Chi giai phong MODEL. Chroma collection khong chiem VRAM va con duoc
+    # dung tiep (vd `get_texts` lay full text cho reranker) - giai phong nham
+    # se buoc mo lai client tren dia khong can thiet.
+    import app.retrieval.embedder as emb
+
+    sentinel = object()
+    emb._collection_cache["instance"] = sentinel
+    emb.release_model()
+    assert emb._collection_cache["instance"] is sentinel
+    emb._collection_cache["instance"] = None

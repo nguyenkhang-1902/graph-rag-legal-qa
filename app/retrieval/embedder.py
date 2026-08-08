@@ -84,6 +84,39 @@ def _get_model() -> SentenceTransformer:
     return _model_cache["instance"]
 
 
+def release_model() -> None:
+    """Giai phong model embedding khoi bo nho (ke ca VRAM) va xoa cache.
+
+    VI SAO CAN (bug that, 2026-08-08): `scripts/eval_hybrid_reranker_baseline.py`
+    chet o cau 720/793 khi dang rerank. Do duoc luc dang chay: VRAM
+    5,904/6,144 MiB (96%), GPU util 100%, KHONG throttle (52C, clock gan max).
+    Nguyen nhan: CA HAI model cung thuong tru tren GPU - BGE-m3 (embedding,
+    ~2.3GB) VA bge-reranker-v2-m3 (~2.3GB) - tren card 6GB, cong activations
+    thi het cho.
+
+    Nhung den giai doan rerank thi MOI ket qua dense da duoc tinh san xong
+    (`dense_search_topk` chay truoc), nen model embedding khong con can. Goi
+    ham nay truoc khi tai reranker.
+
+    Chi giai phong MODEL, KHONG dong den Chroma collection: collection khong
+    chiem VRAM va con duoc dung tiep (vd `get_texts` lay full text cho
+    reranker) - giai phong nham se buoc mo lai client tren dia vo ich.
+
+    An toan goi khi chua tai model gi (caller khong phai kiem tra truoc). Lan
+    goi `_get_model()` sau do se tai lai model tu dau nhu binh thuong.
+    """
+    _model_cache["instance"] = None
+    try:
+        import torch
+
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+    except Exception:  # pragma: no cover - torch khong co/khong dung CUDA
+        # Khong de viec giai phong bo nho lam crash pipeline: day la toi uu,
+        # khong phai buoc bat buoc ve mat dung dan.
+        logger.debug("khong giai phong duoc VRAM (bo qua)", exc_info=True)
+
+
 def embed_texts(texts: list[str]) -> list[list[float]]:
     """Embed mot danh sach text trong MOT loi goi model (batching - nhanh
     hon dang ke so voi goi model tung text mot trong vong lap, xem brief).

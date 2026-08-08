@@ -143,9 +143,26 @@ def _check_question_count_matches_checkpoint(
 
 
 def _load_checkpoint() -> dict:
-    if CHECKPOINT_PATH.is_file():
-        return json.loads(CHECKPOINT_PATH.read_text(encoding="utf-8"))
-    return {"completed": {}, "in_progress": None}
+    """Doc checkpoint, CHUAN HOA `in_progress` ve dang dict-theo-ten.
+
+    Format CU: `in_progress` la MOT object `{"name": ..., "next_index": ...}` -
+    chi giu duoc state cua DUY NHAT mot chien luoc. Do la nguyen nhan bug that
+    2026-08-08 lam mat 720/793 cau da rerank: khi mot chien luoc KHAC ghi
+    checkpoint, no de mat state cua chien luoc dang do dang.
+
+    Format MOI: `in_progress` la dict `{ten_chien_luoc: state}` - moi chien
+    luoc giu state RIENG, khong the de nhau. Ham nay doc duoc ca hai dang de
+    khong pha vo checkpoint cu dang ton tai tren dia."""
+    if not CHECKPOINT_PATH.is_file():
+        return {"completed": {}, "in_progress": {}}
+    data = json.loads(CHECKPOINT_PATH.read_text(encoding="utf-8"))
+    ip = data.get("in_progress")
+    if ip is None:
+        data["in_progress"] = {}
+    elif isinstance(ip, dict) and "name" in ip:
+        # Format cu -> moi.
+        data["in_progress"] = {ip["name"]: ip}
+    return data
 
 
 def _save_checkpoint(checkpoint: dict) -> None:
@@ -266,11 +283,11 @@ def _evaluate(
     xong (persist ra dia qua `_save_checkpoint`, khong chi giu trong RAM -
     de song sot duoc qua lan tien trinh bi dung nhu da xay ra that, xem
     TIEN_DO.md)."""
-    in_progress = checkpoint.get("in_progress")
-    if in_progress and in_progress.get("name") == name:
-        start_idx = in_progress["next_index"]
-        hits = in_progress["hits"]
-        rr_total = in_progress["rr_total"]
+    state = (checkpoint.get("in_progress") or {}).get(name)
+    if state:
+        start_idx = state["next_index"]
+        hits = state["hits"]
+        rr_total = state["rr_total"]
         logger.info(
             "[resume] %s: tiep tuc tu cau %d/%d (da co %d hit)",
             name, start_idx + 1, len(questions), hits,
@@ -289,7 +306,10 @@ def _evaluate(
             rr_total += 1.0 / (ranked.index(want) + 1)
 
         if (i + 1) % checkpoint_every == 0 or (i + 1) == len(questions):
-            checkpoint["in_progress"] = {
+            # Ghi vao KHOA RIENG cua chien luoc nay - truoc day dong nay gan
+            # `checkpoint["in_progress"] = {...}` nen de mat state cua chien
+            # luoc khac dang do dang (bug that, xem _load_checkpoint).
+            checkpoint.setdefault("in_progress", {})[name] = {
                 "name": name, "next_index": i + 1, "hits": hits, "rr_total": rr_total,
             }
             _save_checkpoint(checkpoint)
@@ -304,7 +324,13 @@ def _evaluate(
     )
     result = {"name": name, "recall_at_k": recall, "hits": hits, "total": n, "mrr": mrr, "elapsed_s": elapsed}
     checkpoint["completed"][name] = result
-    checkpoint["in_progress"] = None
+    # Chi xoa `in_progress` khi no THUOC VE chinh chien luoc vua xong.
+    # BUG THAT (2026-08-08) da lam mat 720/793 cau da rerank (~5.6 gio may):
+    # truoc day dong nay la `checkpoint["in_progress"] = None` VO DIEU KIEN, nen
+    # khi them chien luoc "2b" vao giua luc reranker dang co state do dang
+    # (next_index=720), viec 2b hoan tat da XOA state cua reranker -> lan chay
+    # sau bat dau lai tu 0.
+    (checkpoint.get("in_progress") or {}).pop(name, None)
     _save_checkpoint(checkpoint)
     return result
 
@@ -358,12 +384,12 @@ def run_eval(
         raise SystemExit("Khong con cau hoi nao sau khi loc - tang --limit-docs.")
     logger.info("%d cau hoi gold set Zalo (sau khi loc)", len(questions))
 
-    checkpoint = {"completed": {}, "in_progress": None} if restart else _load_checkpoint()
+    checkpoint = {"completed": {}, "in_progress": {}} if restart else _load_checkpoint()
     if checkpoint["completed"] or checkpoint["in_progress"]:
         logger.info(
             "tim thay checkpoint: %d chien luoc da xong (%s), %s",
             len(checkpoint["completed"]), list(checkpoint["completed"]),
-            "dang do 1 chien luoc" if checkpoint["in_progress"] else "khong co chien luoc dang do",
+            f"{len(checkpoint.get('in_progress') or {})} chien luoc dang do dang",
         )
     # TRUOC khi chay bat ky chien luoc nao: tu choi neu quy mo lech (xem
     # QuestionCountMismatchError). Neu khong, cac chien luoc se duoc do o hai
@@ -448,10 +474,21 @@ def run_eval(
         logger.info("[skip - da xong] %s", name3)
         results.append(checkpoint["completed"][name3])
     else:
-        reranker = Reranker(reranker_model)
         all_candidate_ids = sorted({cid for cands in hybrid_candidates_by_q.values() for cid in cands})
         logger.info("  lay full text cho %d candidate id (batched)...", len(all_candidate_ids))
         candidate_texts = get_texts(all_candidate_ids)
+
+        # Giai phong model embedding TRUOC khi tai reranker: den day moi ket
+        # qua dense da tinh san xong nen no khong con can, va giu ca hai model
+        # tren GPU 6GB lam VRAM len 96% -> lan chay truoc CHET o cau 720/793.
+        # Phai goi SAU `get_texts` (get_texts dung Chroma collection, khong
+        # dung model - nhung de thu tu nay cho ro rang y dinh).
+        from app.retrieval.embedder import release_model
+
+        logger.info("  giai phong model embedding de nhuong VRAM cho reranker")
+        release_model()
+
+        reranker = Reranker(reranker_model)
 
         def _hybrid_rerank(q: str) -> list[str]:
             return reranker.rerank(q, hybrid_candidates_by_q[q], candidate_texts, top_k=k)

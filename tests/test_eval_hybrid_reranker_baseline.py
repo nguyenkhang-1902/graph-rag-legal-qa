@@ -75,7 +75,7 @@ def test_full_run_writes_result_to_checkpoint_completed(tmp_path, monkeypatch):
     monkeypatch.setattr(ehrb, "CHECKPOINT_PATH", tmp_path / "checkpoint.json")
     questions = ["q1", "q2", "q3"]
     expected = ["a1", "a2", "a3"]
-    checkpoint = {"completed": {}, "in_progress": None}
+    checkpoint = {"completed": {}, "in_progress": {}}
 
     result = _evaluate(
         "strategy-x", lambda q: [expected[questions.index(q)]], questions, expected, k=4,
@@ -85,7 +85,7 @@ def test_full_run_writes_result_to_checkpoint_completed(tmp_path, monkeypatch):
     assert result["hits"] == 3
     assert result["recall_at_k"] == 1.0
     assert checkpoint["completed"]["strategy-x"] == result
-    assert checkpoint["in_progress"] is None
+    assert "X" not in checkpoint["in_progress"]
     assert (tmp_path / "checkpoint.json").is_file()
 
 
@@ -98,7 +98,10 @@ def test_resumes_from_in_progress_checkpoint_skips_already_scored_questions(tmp_
     expected = ["a1", "a2", "a3"]
     checkpoint = {
         "completed": {},
-        "in_progress": {"name": "strategy-x", "next_index": 2, "hits": 1, "rr_total": 1.0},
+        "in_progress": {
+            "strategy-x": {"name": "strategy-x", "next_index": 2, "hits": 1,
+                           "rr_total": 1.0}
+        },
     }
 
     def retrieve_fn(q):
@@ -120,7 +123,10 @@ def test_in_progress_for_different_strategy_name_does_not_affect_this_run(tmp_pa
     expected = ["a1"]
     checkpoint = {
         "completed": {},
-        "in_progress": {"name": "OTHER strategy", "next_index": 1, "hits": 99, "rr_total": 99.0},
+        "in_progress": {
+            "OTHER strategy": {"name": "OTHER strategy", "next_index": 1,
+                               "hits": 99, "rr_total": 99.0}
+        },
     }
 
     result = _evaluate(
@@ -136,14 +142,16 @@ def test_checkpoints_saved_every_n_questions(tmp_path, monkeypatch):
     monkeypatch.setattr(ehrb, "CHECKPOINT_PATH", checkpoint_path)
     questions = ["q1", "q2", "q3", "q4", "q5"]
     expected = ["a1", "a2", "a3", "a4", "a5"]
-    checkpoint = {"completed": {}, "in_progress": None}
+    checkpoint = {"completed": {}, "in_progress": {}}
 
     seen_next_index_values = []
     original_save = ehrb._save_checkpoint
 
     def spy_save(cp):
         seen_next_index_values.append(
-            cp["in_progress"]["next_index"] if cp["in_progress"] else "final"
+            cp["in_progress"]["strategy-x"]["next_index"]
+            if cp["in_progress"].get("strategy-x")
+            else "final"
         )
         original_save(cp)
 
@@ -252,3 +260,60 @@ def test_cli_default_matches_function_default_for_limit_queries():
         f"default CLI ({cli_default!r}) khac default ham ({fn_default!r}) - "
         "CLI se ghi de gia tri mac dinh cua ham"
     )
+
+
+def test_completing_one_strategy_does_not_wipe_another_strategys_in_progress():
+    # BUG THAT (2026-08-08) da lam MAT 720/793 cau da rerank (~5.6 gio may):
+    # `_evaluate` set `checkpoint["in_progress"] = None` VO DIEU KIEN khi mot
+    # chien luoc xong. Khi them chien luoc "2b" vao giua luc reranker dang co
+    # state do dang (next_index=720), viec 2b hoan tat da XOA state cua
+    # reranker -> lan chay sau bat dau lai tu 0.
+    #
+    # `in_progress` chi duoc xoa khi no THUOC VE chinh chien luoc vua xong.
+    checkpoint = {
+        "completed": {},
+        "in_progress": {
+            "3. Hybrid + Reranker": {
+                "name": "3. Hybrid + Reranker", "next_index": 720,
+                "hits": 631, "rr_total": 538.5,
+            }
+        },
+        "n_questions": 3,
+    }
+    saved = []
+    original = ehrb._save_checkpoint
+    ehrb._save_checkpoint = lambda c: saved.append(c)
+    try:
+        ehrb._evaluate(
+            "2b. Hybrid (khac)",
+            lambda q: ["dung"],
+            ["q1", "q2", "q3"],
+            ["dung", "dung", "dung"],
+            4,
+            checkpoint,
+        )
+    finally:
+        ehrb._save_checkpoint = original
+
+    assert "2b. Hybrid (khac)" in checkpoint["completed"]
+    assert "3. Hybrid + Reranker" in checkpoint["in_progress"], (
+        "state do dang cua chien luoc KHAC da bi xoa"
+    )
+    assert checkpoint["in_progress"]["3. Hybrid + Reranker"]["next_index"] == 720
+
+
+def test_completing_a_strategy_clears_its_own_in_progress():
+    checkpoint = {
+        "completed": {},
+        "in_progress": {"X": {"name": "X", "next_index": 2, "hits": 1, "rr_total": 1.0}},
+        "n_questions": 3,
+    }
+    original = ehrb._save_checkpoint
+    ehrb._save_checkpoint = lambda c: None
+    try:
+        ehrb._evaluate("X", lambda q: ["dung"], ["q1", "q2", "q3"],
+                       ["dung", "dung", "dung"], 4, checkpoint)
+    finally:
+        ehrb._save_checkpoint = original
+
+    assert "X" not in checkpoint["in_progress"]
