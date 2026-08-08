@@ -1,0 +1,24 @@
+2026-08-08 09:03:19,950 INFO doc corpus...
+2026-08-08 09:08:35,092 INFO   61068 tai lieu trong 315.2s
+2026-08-08 09:08:35,092 INFO tokenize corpus...
+2026-08-08 09:08:46,085 INFO   18473162 token trong 11.0s (dung CHUNG cho ca 2 backend)
+2026-08-08 09:08:46,097 INFO 793 cau hoi gold set Zalo (sau khi loc)
+2026-08-08 09:08:46,097 INFO --- backend: rank_bm25 (giong project truoc) ---
+2026-08-08 09:13:27,276 INFO --- backend: bm25s method=robertson (1/4) ---
+2026-08-08 09:13:32,481 INFO --- backend: bm25s method=lucene (2/4) ---
+2026-08-08 09:13:37,301 INFO --- backend: bm25s method=atire (3/4) ---
+2026-08-08 09:13:42,377 INFO --- backend: bm25s method=bm25l (4/4) ---
+
+corpus: 61,068 tai lieu | 793 cau hoi gold | k=4
+
+backend             index(s)  truyvan(s)  ms/truyvan    Recall@4     MRR   khop rank_bm25            tang toc
+-------------------------------------------------------------------------------------------------------------
+rank_bm25                2.4       278.7       351.4      58.0%   0.412                -          1.0x (goc)
+bm25s:robertson          4.3         0.7         0.9      55.7%   0.405            57.8%                388x
+bm25s:lucene             4.0         0.8         1.0      64.3%   0.475            66.2%                357x
+bm25s:atire              4.3         0.8         0.9      64.3%   0.475            66.2%                372x
+bm25s:bm25l              4.6         0.8         0.9      64.4%   0.477            66.1%                372x
+
+KET LUAN: bien the bam sat nhat la bm25s:lucene nhung chi khop 66.2% thu hang voi rank_bm25 -> KHONG phai thay the trong suot. Neu dung bm25s cho baseline thi PHAI ghi ro trong bang ket qua rang so lieu khong so truc tiep duoc voi Recall@4 cu (khac ca backend LAN quy mo corpus).
+
+Luu y: day chi la tang BM25. Baseline Hybrid+Reranker con them dense (da co san 60,568 embedding) + cross-encoder rerank (phan dat nhat, chi phi GIONG NHAU du chon backend nao).

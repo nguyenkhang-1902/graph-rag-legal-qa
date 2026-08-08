@@ -24,3 +24,7 @@ docker-volumes/
 
 # Superpowers subagent-driven-development scratch (progress ledger, briefs, review packages)
 .superpowers/
+
+# Checkpoint tam cua cac script eval dai (resumable) - state chay, KHONG phai
+# ket qua. Ket qua chinh thuc nam o *_result.json (khong co dau gach duoi dau).
+scripts/quality_fixtures/_*checkpoint.json

@@ -261,9 +261,18 @@ def build_arg_parser() -> argparse.ArgumentParser:
                         help="So cau hoi gold set dung de do (mac dinh 50).")
     parser.add_argument("-k", type=int, default=DEFAULT_K,
                         help=f"top-k (mac dinh {DEFAULT_K}, khop bang Recall@4 cua project truoc).")
-    parser.add_argument("--bm25s-method", type=str, default="robertson",
-                        help=("Bien the IDF cho bm25s (mac dinh 'robertson' - GAN NHAT voi "
-                              "rank_bm25.BM25Okapi; thu 'lucene' de thay khac biet)."))
+    parser.add_argument(
+        "--bm25s-methods",
+        type=str,
+        default="robertson,lucene",
+        help=(
+            "Danh sach bien the IDF cua bm25s, cach nhau bang dau phay. Thu "
+            "NHIEU bien the trong MOT lan chay vi doc corpus 61k mat ~6 phut - "
+            "chay lai cho tung bien the la tra gia gap doi cho phan khong doi. "
+            "'robertson' duoc ky vong gan nhat rank_bm25.BM25Okapi; 'lucene' la "
+            "mac dinh cua bm25s. Cac lua chon khac: atire, bm25l, bm25+."
+        ),
+    )
     return parser
 
 
@@ -305,51 +314,73 @@ def main() -> None:
         )
     logger.info("%d cau hoi gold set Zalo (sau khi loc)", len(questions))
 
-    logger.info("--- backend 1/2: rank_bm25 (giong project truoc) ---")
-    ranked_rank, idx_rank, qry_rank = run_rank_bm25(corpus_tokens, ids, questions, args.k)
-
-    logger.info("--- backend 2/2: bm25s (method=%s) ---", args.bm25s_method)
-    ranked_s, idx_s, qry_s = run_bm25s(
-        corpus_tokens, ids, questions, args.k, args.bm25s_method
-    )
-
-    r_rank, m_rank = recall_and_mrr(ranked_rank, expected, args.k)
-    r_s, m_s = recall_and_mrr(ranked_s, expected, args.k)
-    agree = topk_agreement(ranked_rank, ranked_s, args.k)
     nq = len(questions)
+    methods = [m.strip() for m in args.bm25s_methods.split(",") if m.strip()]
 
-    print()
-    print(f"{'':<22} {'rank_bm25':>14} {'bm25s':>14}")
-    print(f"{'thoi gian index':<22} {idx_rank:>13.1f}s {idx_s:>13.1f}s")
-    print(f"{'thoi gian ' + str(nq) + ' truy van':<22} {qry_rank:>13.1f}s {qry_s:>13.1f}s")
-    print(f"{'ms / truy van':<22} {qry_rank/max(nq,1)*1000:>13.1f}  {qry_s/max(nq,1)*1000:>13.1f} ")
-    print(f"{f'Recall@{args.k}':<22} {r_rank:>13.1%}  {r_s:>13.1%} ")
-    print(f"{'MRR':<22} {m_rank:>13.3f}  {m_s:>13.3f} ")
-    print()
-    print(f"Trung khop tap top-{args.k} giua 2 backend: {agree:.1%}")
+    logger.info("--- backend: rank_bm25 (giong project truoc) ---")
+    ranked_rank, idx_rank, qry_rank = run_rank_bm25(corpus_tokens, ids, questions, args.k)
+    r_rank, m_rank = recall_and_mrr(ranked_rank, expected, args.k)
+
+    # (nhan, thoi gian index, thoi gian truy van, recall, mrr, trung khop)
+    rows = [("rank_bm25", idx_rank, qry_rank, r_rank, m_rank, 1.0)]
+    for i, method in enumerate(methods, 1):
+        logger.info("--- backend: bm25s method=%s (%d/%d) ---", method, i, len(methods))
+        ranked_s, idx_s, qry_s = run_bm25s(
+            corpus_tokens, ids, questions, args.k, method
+        )
+        r_s, m_s = recall_and_mrr(ranked_s, expected, args.k)
+        rows.append((
+            f"bm25s:{method}", idx_s, qry_s, r_s, m_s,
+            topk_agreement(ranked_rank, ranked_s, args.k),
+        ))
+
     # Chi bao ty le tang toc khi CA HAI phep do du lon de dang tin. Duoi
     # nguong nay, do phan giai dong ho lam ty le vo nghia (smoke test dau
     # tien in ra "nhanh hon 157,000,000 lan" vi chia cho ~0).
     _MIN_MEASURABLE_S = 0.5
-    if qry_rank >= _MIN_MEASURABLE_S and qry_s >= _MIN_MEASURABLE_S:
-        print(f"bm25s nhanh hon (truy van): {qry_rank / qry_s:.1f} lan")
-    else:
-        print(
-            f"(khong bao ty le tang toc: co phep do duoi {_MIN_MEASURABLE_S}s, "
-            "do phan giai dong ho khong du tin cay - chay voi corpus/so cau "
-            "hoi lon hon)"
-        )
+
     print()
-    if agree < 1.0:
-        print(
-            "CANH BAO: hai backend KHONG xep hang giong het nhau. Neu dung "
-            "bm25s cho baseline thi so lieu KHONG con so sanh truc tiep duoc "
-            "voi Recall@4 cu cua project truoc - phai ghi ro trong bang ket qua."
-        )
-    # Ngoai suy chi phi chay full gold set (793 cau).
+    print(f"corpus: {len(ids):,} tai lieu | {nq} cau hoi gold | k={args.k}")
+    print()
+    head = (f"{'backend':<18}{'index(s)':>10}{'truyvan(s)':>12}{'ms/truyvan':>12}"
+            f"{'Recall@'+str(args.k):>12}{'MRR':>8}{'khop rank_bm25':>17}"
+            f"{'tang toc':>20}")
+    print(head)
+    print("-" * len(head))
+    for label, idx_s, qry_s, rec, mrr, agree in rows:
+        if label == "rank_bm25":
+            speed = "1.0x (goc)"
+        elif qry_rank >= _MIN_MEASURABLE_S and qry_s >= _MIN_MEASURABLE_S:
+            speed = f"{qry_rank / qry_s:.0f}x"
+        else:
+            speed = "(qua nhanh de do)"
+        khop = "-" if label == "rank_bm25" else f"{agree:.1%}"
+        print(f"{label:<18}{idx_s:>10.1f}{qry_s:>12.1f}{qry_s/max(nq,1)*1000:>12.1f}"
+              f"{rec:>11.1%}{mrr:>8.3f}{khop:>17}{speed:>20}")
+
+    print()
+    best = max(
+        (r for r in rows if r[0] != "rank_bm25"), key=lambda r: r[5], default=None
+    )
+    if best is not None:
+        if best[5] >= 0.999:
+            print(
+                f"KET LUAN: {best[0]} xep hang GIONG HET rank_bm25 ({best[5]:.1%}) "
+                "-> dung duoc thay the, so lieu VAN so sanh truc tiep duoc voi "
+                "Recall@4 cu cua project truoc."
+            )
+        else:
+            print(
+                f"KET LUAN: bien the bam sat nhat la {best[0]} nhung chi khop "
+                f"{best[5]:.1%} thu hang voi rank_bm25 -> KHONG phai thay the "
+                "trong suot. Neu dung bm25s cho baseline thi PHAI ghi ro trong "
+                "bang ket qua rang so lieu khong so truc tiep duoc voi Recall@4 "
+                "cu (khac ca backend LAN quy mo corpus)."
+            )
     print(
-        f"Uoc tinh full 793 cau: rank_bm25 ~{qry_rank/max(nq,1)*793/60:.1f} phut, "
-        f"bm25s ~{qry_s/max(nq,1)*793/60:.1f} phut (chua ke reranker)."
+        f"\nLuu y: day chi la tang BM25. Baseline Hybrid+Reranker con them dense "
+        f"(da co san 60,568 embedding) + cross-encoder rerank (phan dat nhat, "
+        f"chi phi GIONG NHAU du chon backend nao)."
     )
 
 

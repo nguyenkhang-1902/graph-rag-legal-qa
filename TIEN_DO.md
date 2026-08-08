@@ -1,5 +1,5 @@
 # 📓 GRAPH RAG LEGAL QA — NHẬT KÝ TIẾN ĐỘ & HƯỚNG DẪN TIẾP TỤC
-> Cập nhật: **2026-08-06**. Mở file này đầu tiên là biết đang ở đâu và làm gì tiếp.
+> Cập nhật: **2026-08-07**. Mở file này đầu tiên là biết đang ở đâu và làm gì tiếp.
 > Mọi điểm chờ người quyết định đã gom về file `CHECKLIST-GRAPHRAG-DUYET.md`.
 
 ## 0. 🎨 ĐỢT 1 — Brainstorming & Spec-driven setup (2026-08-03)
@@ -175,31 +175,37 @@
 
   Đây là vấn đề **trực tiếp với luận điểm cốt lõi của dự án** (User Story 1: "năng lực khác biệt cốt lõi của Graph RAG so với Hybrid RAG cũ"). Bộ 32 câu eval tuy soạn từ chuỗi REFERENCES thật, nhưng câu hỏi lại chứa đủ manh mối ngữ nghĩa để dense tìm thẳng ra **cả hai** Điều — nên không thực sự kiểm tra khả năng multi-hop. **Cần Khang quyết trước khi làm T018** (xem checklist mục I1) — trình bày T018 kiểu gì cũng phải trung thực với con số này.
 
+## 11. 🔬 ĐỢT 14 — Đo backend BM25 thật ở 61k, chốt dùng `rank_bm25` cho T018 (2026-08-08)
+
+> Kết quả thô lưu tại `scripts/quality_fixtures/bm25_backend_bench_61k.txt`.
+
+- [x] **Chạy `scripts/bench_bm25_backends.py` full: 61,068 tài liệu / 793 câu gold Zalo / k=4.** Đọc corpus 315s, tokenize 18,47 triệu token trong 11s (dùng CHUNG cho mọi backend nên so sánh công bằng).
+
+  | Backend | index | 793 truy vấn | ms/truy vấn | Recall@4 | MRR | Khớp `rank_bm25` | Tăng tốc |
+  |---|---|---|---|---|---|---|---|
+  | `rank_bm25` (dự án cũ) | 2,4s | **278,7s** | 351,4 | 58,0% | 0,412 | — | 1,0x |
+  | `bm25s:robertson` | 4,3s | 0,7s | 0,9 | 55,7% | 0,405 | 57,8% | 388x |
+  | `bm25s:lucene` | 4,0s | 0,8s | 1,0 | **64,3%** | 0,475 | **66,2%** | 357x |
+  | `bm25s:atire` | 4,3s | 0,8s | 0,9 | 64,3% | 0,475 | 66,2% | 372x |
+  | `bm25s:bm25l` | 4,6s | 0,8s | 0,9 | **64,4%** | **0,477** | 66,1% | 372x |
+
+- [x] **Ba kết luận, hai trong đó NGƯỢC dự đoán ban đầu của Claude** (ghi lại để lần sau bớt tin ước lượng chưa đo):
+  1. **Tốc độ KHÔNG phải lý do đổi backend**: `rank_bm25` ở 61k chỉ mất **4,6 phút** cho 793 câu. Ước lượng ban đầu "có thể vài giờ" là SAI — và nếu không đo thì đã dẫn tới quyết định đổi backend không cần thiết.
+  2. **`robertson` KHÔNG bám `rank_bm25` sát nhất** dù `rank_bm25.BM25Okapi` chính là biến thể Robertson — nó tệ nhất cả về khớp thứ hạng (57,8%) lẫn Recall (55,7%, THẤP HƠN `rank_bm25`). Nguyên nhân gần như chắc chắn: `rank_bm25` chặn IDF âm bằng `epsilon=0.25`, `bm25s` thì không.
+  3. **Các biến thể `bm25s` khác cho Recall CAO HƠN rõ rệt**: 64,3–64,4% vs 58,0% = **+6,3 điểm %** — không chỉ "khác" mà "tốt hơn". Nhưng khớp thứ hạng chỉ ~66% → **không phải thay thế trong suốt**, đúng như cảnh báo trước khi đo.
+- [x] **CHỐT: dùng `rank_bm25` cho dòng baseline Hybrid+Reranker @67k của T018.** Lý do: mục đích của phương án (b) trong G1 là "phát triển thêm so với dự án cũ" — muốn vậy phải **cùng implementation**, chỉ khác quy mô. Đổi backend sẽ làm lệch CẢ HAI biến cùng lúc, đúng lỗi phương pháp vừa tránh được ở bộ câu hỏi (xem ĐỢT 13). Tốc độ đã chứng minh không phải rào cản.
+- [x] **Phần `bm25s` báo cáo như PHÁT HIỆN KỸ THUẬT RIÊNG** (không trộn vào bảng so sánh chính): README dự án cũ ghi *"cần đổi backend nếu scale vượt 10k văn bản"* — dự án này **đo được con số cụ thể** cho khuyến nghị đó (351ms/truy vấn ở 61k; backend thay thế nhanh hơn ~360x kèm +6,3 điểm % Recall). Đây là câu chuyện tốt cho README/CV: dự án trước nêu hạn chế, dự án sau lượng hoá nó.
+- [x] ⚠️ **Đọc bảng đúng cách**: 58,0% là **BM25 ĐƠN THUẦN**, KHÔNG so được với 93,3% của dự án cũ (đó là Hybrid = BM25 + dense + reranker). Đừng đặt hai số này cạnh nhau.
+- [x] `requirements/bench.txt` giữ cả hai thư viện (`rank-bm25==0.2.2` để chạy baseline, `bm25s==0.3.10` để tái lập phép đo này). 322/322 test pass.
+
 ## 📍 Việc cần làm tiếp theo (đọc phần này trước khi bắt đầu phiên mới)
 
-1. ⏳ **MIGRATION T027 BỊ NGẮT GIỮA CHỪNG — TIẾP TỤC BẰNG `--resume`** (dừng sạch ở **batch 114/306 = 37,3%**, 2026-08-06 17:09, Khang tan làm — đã `TaskStop`, xác nhận không còn tiến trình python nào).
+> Cập nhật lại 2026-08-07 (sau khi đối chiếu với git log + Neo4j thật — mục này trước đó bị lạc hậu so với ĐỢT 13, vẫn ghi "migration bị ngắt" dù đã chạy xong).
 
-   **Mở Docker Desktop trước** (Neo4j phải reachable), rồi chạy ĐÚNG lệnh này:
-   ```bash
-   python -m scripts.migrate_references data/raw --apply --resume
-   ```
-
-   🔴 **TUYỆT ĐỐI KHÔNG chạy `--apply` mà thiếu `--resume`**: bước 1-4 của migration là XOÁ + reset checkpoint, nên lệnh thiếu cờ sẽ **xoá sạch REFERENCES đã tạo được và làm lại từ đầu** (~2h). `--resume` bỏ qua bước 1-4, chỉ chạy tiếp re-ingest từ checkpoint + đối chiếu Chroma. Có guard: `--resume` mà không có checkpoint thì script tự từ chối chạy.
-
-   ✅ `.env` đã được sửa `INGEST_BATCH_SIZE=3` → **200** (2026-08-06) để khớp `batch_size` trong checkpoint — nếu để 3 thì `run_ingest` raise `BatchSizeMismatchError` và từ chối chạy (cơ chế T009d, đúng theo thiết kế). **Đừng đổi lại giá trị này giữa 2 lần chạy.**
-
-   **Sau khi migration xong, verify theo bảng số liệu kỳ vọng đã tính trước** — lệch thì PHẢI điều tra, không bỏ qua:
-
-   | Chỉ số | Kỳ vọng |
-   |---|---|
-   | Article thật | **60,568** (giảm 111 so với 60,679 là ĐÚNG — xem ĐỢT 12) |
-   | Document | **3,201** |
-   | REFERENCES | **~38,300** |
-   | Article thiếu `chroma_id` | **8** → chạy `python -m scripts.backfill_embeddings data/raw` (~1s GPU) |
-   | Chroma count sau đối chiếu | khớp số Article thật |
-   | Term / DEFINES / USES_TERM / AMENDS | giữ nguyên (6,104 / ~6,862 / ~113,683 / 2) |
-2. **Sau migration: chạy lại T017** (`python -m scripts.eval_graph_recall`) — baseline cũ 90.6%/93.1%/0.917 đo trên graph TRƯỚC T026, không còn dùng để so sánh trực tiếp được. Kiểm luôn 2 câu `mh-014`/`mh-030` (xem ĐỢT 11): nếu fail thì mới xét sửa metadata/loại câu, không sửa trước khi biết.
-3. **T018 — Khang đã chốt hướng (2026-08-06)**: (a) so Graph RAG với baseline Hybrid+Reranker cũ **ở quy mô 10k**, ghi rõ lệch quy mô là hạn chế đã biết; (b) **tự đo baseline Hybrid+Reranker MỚI ở 67k trong dự án này**, ghi rõ số liệu này đo ở dự án mới và trình bày là **phát triển thêm** so với dự án cũ (không ép baseline cũ chạy ở 67k). → G1 trong checklist đã chốt.
-4. **Chạy full corpus `extract_relations.py`** (T013) — trước đây chờ 2 điểm quyết đã xong (cả hai đều đã sửa ở T026). Lưu ý độ phủ candidate giờ sẽ **cao hơn nhiều** so với ước tính ~40 candidate/61k file cũ, vì nguyên nhân gốc (regex không khớp "của"/"số") đã được sửa — cần đo lại thay vì dùng con số cũ.
-5. Chạy thử 1-2 câu hỏi qua `/chat` với thuật ngữ đã có (vd "Ngày", "Đơn PCT", hoặc 1 trong **6,104** Term) để xác nhận DEFINES/USES_TERM thực sự hoạt động trong traversal, không chỉ tồn tại trên lý thuyết.
+1. 🚨 **CHẶN T018 — cần Khang chọn hướng ở I1 trước khi đo benchmark chính thức** (xem `CHECKLIST-GRAPHRAG-DUYET.md` mục I1, ĐỢT 13): graph traversal chỉ đóng góp **+3,1 điểm % / đúng 1 câu** vào Strict recall (dense-only đã 87,5%, có traversal 90,6%) — chưa thực sự chứng minh được luận điểm cốt lõi "Graph RAG hơn Hybrid RAG nhờ multi-hop". 3 hướng: (a) soạn lại bộ câu hỏi multi-hop *đúng nghĩa* (chỉ giữ câu dense-only thất bại) — trung thực nhất, điểm sẽ thấp hơn; (b) giữ bộ 32 câu, ghi rõ bảng tách tầng trong README/T018, không tuyên bố 90,6% là nhờ graph; (c) đổi luận điểm giá trị Graph RAG sang `citation_path`/provenance + AMENDS/SUPERSEDES thay vì Recall. Có thể kết hợp (a)+(c).
+2. **T018 prep đã có script, CHƯA chạy thật**: `scripts/bench_bm25_backends.py` (2026-08-07, so `rank_bm25` vs `bm25s` trên corpus 61k thật — `bm25s` đã cài, v0.3.10) — chưa có kết quả đo. Chạy `python -m scripts.bench_bm25_backends data/raw` để chọn backend TRƯỚC khi tự đo baseline Hybrid+Reranker mới ở 67k (hướng G1-b đã chốt).
+3. **T013 (`extract_relations.py`) vẫn CHƯA chạy full corpus** — đã kiểm tra trực tiếp Neo4j (2026-08-07): vẫn chỉ **2 AMENDS / 0 SUPERSEDES / 0 CONFLICTS_WITH** (từ lần chạy subset 3000 file ở ĐỢT 10, TRƯỚC migration T026). Giờ `doc_id` đã nhất quán (migration T026/T027 xong), độ phủ candidate dự kiến cao hơn hẳn con số ước tính cũ (~40/61k) — chạy `python -m scripts.extract_relations data/raw` để lấy số liệu thật, không dùng lại số cũ.
+4. **I2 (nhẹ, không chặn)**: sửa metadata `relationship_path` của câu `mh-030` trong `data/eval/multihop_eval_set.json` — đang mô tả chuỗi REFERENCES tự-tham-chiếu SAI đã bị migration T026 loại bỏ (câu này vốn đã fail từ trước migration nên không ảnh hưởng điểm số, chỉ là lỗi tài liệu).
+5. Chạy thử 1-2 câu hỏi qua `/chat` với thuật ngữ đã có (vd "Ngày", "Đơn PCT", hoặc 1 trong **6,104** Term) để xác nhận DEFINES/USES_TERM thực sự hoạt động trong traversal, không chỉ tồn tại trên lý thuyết — chưa làm.
 6. **T012 ĐÓNG** — T012b đã nâng độ phủ bằng 1 dòng regex, không cần LLM fallback (F2 chốt).
+7. **T009f (backfill embedding)**: đã xong 100% cho 60,568 Article thật hiện tại (8 Article mới sau fix `ð` đã backfill ở ĐỢT 13) — không còn việc tồn đọng ở mục này.
