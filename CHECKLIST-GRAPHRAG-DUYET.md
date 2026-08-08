@@ -66,6 +66,19 @@
 
 - [ ] **I2. Sửa metadata `relationship_path` của `mh-030`** (không ảnh hưởng điểm số — câu này vốn đã fail từ trước migration). Nó mô tả chuỗi `_dieu-24 → _dieu-16 → _dieu-10` vốn là edge self-ref SAI, giờ không còn tồn tại. Lỗi tài liệu, nên sửa cho khỏi gây hiểu nhầm về sau.
 
+## 🚨 ĐIỂM MỚI CẦN KHANG QUYẾT (2026-08-08, sau khi T018 có số liệu đầy đủ)
+
+- [ ] **J1. `SIMILARITY_THRESHOLD` đang làm mất 12,3 điểm % Recall — có bỏ/hạ tiếp không?** Đo thật trên 793 câu Zalo gold:
+
+  | Ngưỡng | Recall@4 | Recall mở rộng | Ứng viên TB |
+  |---|---|---|---|
+  | 0.65 (đang dùng) | 69,5% | 72,5% | 6,0 |
+  | 0.0 (tắt) | **81,8%** | **87,5%** | 10,2 |
+
+  ADR-004 hạ 0.75→0.65 dựa trên **32 câu** (có đọc tay 10/10 + split-half) nhưng trên **793 câu** vẫn quá gắt. Đánh đổi thật: ngưỡng tồn tại để **không đưa ngữ cảnh rác cho LLM** (precision), không phải để tối đa recall — nên bỏ hẳn sẽ tăng recall nhưng cho LLM thêm ứng viên yếu (6,0 → 10,2 ứng viên/câu). Ba hướng: (a) bỏ hẳn bộ lọc, để `MAX_HOP`/`top_k` kiểm soát lượng ngữ cảnh; (b) hạ tiếp xuống mức trung gian (vd 0.5) rồi đo lại trên 793 câu — lần này **đo trên bộ lớn**, không phải 32 câu; (c) giữ 0.65 và chấp nhận, nếu ưu tiên precision hơn recall. **Cần đo thêm precision/chất lượng câu trả lời qua `/chat` trước khi chốt** — hiện chỉ có số liệu recall.
+
+- [ ] **J2. Cách trình bày T018 trong README** (liên quan I1 vẫn đang treo): số mạnh nhất của Graph RAG là **recall mở rộng 87,5% với 26s** so với Hybrid+Reranker **87,6% với 3.920s (~150x rẻ hơn)**. Nhưng hai con số **không cùng thang đo** (10,2 ứng viên vs 4). Cần chốt: trình bày như "đạt recall tương đương với chi phí thấp hơn ~150x, với 2,5x số ứng viên" (trung thực, hơi dài) hay tách hẳn hai bảng?
+
 ## 🗂️ Lịch sử: nội dung H1/H2/H3 nguyên văn (đã chốt ở trên)
 
 - [x] **H1. Chạy migration T027 trên graph thật?** `python -m scripts.migrate_references data/raw --apply`. Cần thiết vì `upsert.py` dùng MERGE → edge sai cũ **không tự biến mất**; chạy lại ingest mà không migration sẽ cho graph chứa **cả** edge đúng lẫn edge sai (tệ hơn trước khi sửa). Sẽ xoá 37,875 REFERENCES + placeholder mồ côi rồi tạo lại. **Không mất dữ liệu nguồn** (tất cả tái tạo được từ `data/raw`); **KHÔNG đụng** Chroma/`chroma_id`, Term/DEFINES/USES_TERM, AMENDS/SUPERSEDES/CONFLICTS_WITH. Đã verify `EXPLAIN` trên Neo4j 5.26.28 + dry-run trên graph thật. Chưa rõ thời gian chạy (re-ingest 61k file). **Cho tới khi chạy, mọi số liệu đo được đều không phản ánh code hiện tại.**

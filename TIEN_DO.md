@@ -225,6 +225,43 @@
 - [x] 🔍 **PHÁT HIỆN: Hybrid KÉM HƠN Dense-only ở 67k** (79,2% vs 82,1%) — **ngược hẳn dự án cũ ở 10k** (Hybrid tốt hơn Dense). Giải thích khớp chính xác với phép đo BM25 ở ĐỢT 14: BM25 đơn thuần ở 61k chỉ đạt 58–64%, nên RRF gộp một nhánh yếu vào nhánh dense mạnh thành ra **kéo xuống**. Đây là **bằng chứng định lượng** cho hạn chế mà README dự án cũ chỉ nêu định tính (*"cần đổi backend nếu scale vượt 10k"*) — giá trị kể chuyện tốt cho README/CV.
 - [x] **ĐÍNH CHÍNH kết luận ĐỢT 14 (backend BM25)**: chuyển từ "chốt `rank_bm25`" sang **giữ `bm25s`**. Lý do đổi ý: (1) chính README dự án cũ nói phải đổi backend khi vượt 10k, nên `bm25s` ở 67k mới là làm đúng khuyến nghị đó; (2) kết luận "Hybrid kéo xuống" còn đúng **mạnh hơn** với `rank_bm25` (BM25 yếu hơn nữa: 58,0% vs 64,3%), nên chọn `bm25s` là cách trình bày **thận trọng hơn** cho baseline, không phải cách tô hồng. Sẽ thêm một dòng Hybrid dùng `rank_bm25` (không reranker, ~5 phút) để **lượng hoá** ảnh hưởng của backend thay vì để nó thành biến gây nhiễu ẩn.
 
+## 13. 🏁 ĐỢT 16 — T018 CÓ SỐ LIỆU ĐẦY ĐỦ + phát hiện `SIMILARITY_THRESHOLD` làm mất 12,3 điểm % (2026-08-08)
+
+> Tất cả đo trên **cùng 793 câu Zalo gold**, **cùng metric Recall@4/MRR**, **cùng corpus 67k** — lần đầu tiên bảng so sánh thực sự hợp lệ (xem ADR-005).
+
+### Baseline mới, tự đo trong dự án này (hướng G1-b)
+
+| Chiến lược @67k | Recall@4 | MRR | Thời gian |
+|---|---|---|---|
+| Dense-only | **82,1%** (651/793) | 0,668 | ~17s |
+| Hybrid (`bm25s` + dense, RRF) | 79,2% (628/793) | 0,609 | ~18s |
+| Hybrid (`rank_bm25` + dense, RRF) | 78,6% (623/793) | 0,592 | ~297s |
+| **Hybrid + Reranker** | **87,6%** (695/793) | **0,751** | **3.920s (65 phút)** |
+
+### Graph RAG, cùng 793 câu
+
+| `SIMILARITY_THRESHOLD` | Recall@4 | Recall mở rộng | MRR | Ứng viên TB | Thời gian |
+|---|---|---|---|---|---|
+| **0.65** (production hiện tại) | 69,5% (551/793) | 72,5% (575/793) | 0,593 | 6,0 | 26s |
+| **0.0** (tắt lọc) | **81,8%** (649/793) | **87,5%** (694/793) | 0,676 | 10,2 | 26s |
+
+### 🚨 Phát hiện lớn nhất: bộ lọc `SIMILARITY_THRESHOLD` đang gây hại nhiều hơn lợi
+
+- Ngưỡng 0.65 làm **mất 12,3 điểm % Recall@4** (81,8% → 69,5%) và **15,0 điểm %** recall mở rộng.
+- ADR-004 hạ ngưỡng 0.75→0.65 dựa trên **32 câu** (kèm đọc tay 10/10 case + held-out split-half) — nhưng trên **793 câu** thì ngưỡng vẫn **quá gắt**. Bài học: hiệu chỉnh ngưỡng trên 32 câu không suy rộng được ra 793 câu, dù lúc đó đã kiểm split-half tử tế.
+- Với ngưỡng tắt, Graph RAG@4 = 81,8% ≈ Dense-only 82,1% → **xác nhận cùng nền retrieval**, toàn bộ chênh lệch trước đó do bộ lọc, không phải do graph.
+
+### 🔍 Hai kết quả đáng chú ý khác
+
+1. **Hybrid KÉM HƠN Dense-only** (79,2% vs 82,1%) — ngược dự án cũ ở 10k. Khớp với ĐỢT 14: BM25 đơn thuần ở 61k chỉ 58–64%, nên RRF gộp nhánh yếu vào nhánh dense mạnh thành ra kéo xuống. **Bằng chứng định lượng** cho hạn chế mà README dự án cũ chỉ nêu định tính.
+2. **Backend BM25 gần như không quan trọng sau khi fuse**: chênh 0,6 điểm % (79,2% vs 78,6%), dù dùng một mình thì chênh 6,3 điểm %. RRF hấp thụ gần hết khác biệt → toàn bộ tranh luận `bm25s` vs `rank_bm25` (ĐỢT 14 chốt một chiều, ĐỢT 15 tự đính chính) **hầu như không ảnh hưởng kết luận**.
+3. **Traversal đóng góp +5,7 điểm % / 45 câu** khi tắt ngưỡng (81,8% → 87,5%) — cao hơn hẳn "+3,1 điểm % / 1 câu" ở ĐỢT 13 (đo dưới bộ lọc, trên bộ 32 câu). Vẫn khiêm tốn nhưng có 45 lần nhiều bằng chứng hơn.
+4. **Recall mở rộng 87,5% ≈ Hybrid+Reranker 87,6%** nhưng **26s vs 3.920s (~150x rẻ hơn)**. ⚠️ Caveat bắt buộc nêu: 10,2 ứng viên so với 4 — không cùng thang đo, dù 10 ứng viên vẫn hợp lý làm context cho LLM.
+
+### Sự cố hạ tầng lặp lại (lần 3)
+
+Docker Desktop tự tắt giữa phiên → Neo4j `ServiceUnavailable`. Không phải lỗi code (lần 3 rồi: ĐỢT 8, ĐỢT 13, lần này). Khởi động lại Docker Desktop là xong, dữ liệu nguyên vẹn (60,568 Article).
+
 ## 📍 Việc cần làm tiếp theo (đọc phần này trước khi bắt đầu phiên mới)
 
 > Cập nhật lại 2026-08-07 (sau khi đối chiếu với git log + Neo4j thật — mục này trước đó bị lạc hậu so với ĐỢT 13, vẫn ghi "migration bị ngắt" dù đã chạy xong).
