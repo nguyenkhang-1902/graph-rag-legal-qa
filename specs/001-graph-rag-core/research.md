@@ -243,6 +243,57 @@ Các bài học từ project Hybrid RAG trước áp dụng được cho project
 
 - **13a. Dữ liệu crawl/scrape thật luôn có khả năng chứa bản ghi gần-trùng do encoding/chuẩn hóa không nhất quán** (vd tên file lệch nhau đúng 1 ký tự dấu tiếng Việt, ID sinh ra từ 2 lần thu thập khác thời điểm) — khi hệ thống có bước chuẩn hóa ID (slugify, bỏ dấu, lowercase...) để tạo khóa duy nhất, các bản ghi gần-trùng này SẼ va vào nhau. **Không mặc định coi là an toàn hay nguy hiểm** — phải so sánh nội dung thật: giống hệt thì dedup tự động (an toàn), khác nhau thì dừng lại hỏi người, không bao giờ để ghi đè âm thầm (đặc biệt nguy hiểm với domain có hậu quả thật như văn bản pháp luật). Xem ADR-003 (giải pháp) và `TIEN_DO.md` (số liệu điều tra thật: 389/389 cặp trùng phát hiện lúc ingest 61k đều an toàn, nhưng đây là may mắn của lần này, không phải đảm bảo).
 
+## 🗒️ ADR-005: Phương pháp so sánh T018 — chọn benchmark, backend BM25, và cách trình bày số liệu cũ
+
+**Status:** Accepted
+**Date:** 2026-08-08
+**Deciders:** Khang
+
+### Context
+
+Phát biểu ban đầu của G1 ("so Graph RAG với baseline Hybrid+Reranker cũ ở quy mô 10k, ghi rõ lệch quy mô là hạn chế") **chứa một lỗi phương pháp không được nhận ra lúc chốt**: số 93.3% của dự án trước đo trên **793 câu Zalo gold set** (mỗi câu MỘT đáp án, Recall@4), còn 90.6% của T017 đo trên **32 câu multi-hop tự soạn** (mỗi câu NHIỀU đáp án, strict/lenient recall). Đặt hai số cạnh nhau là so **hai bộ câu hỏi khác nhau** *và* **hai metric khác nhau** *và* **hai quy mô corpus khác nhau** — ba biến gây nhiễu cùng lúc, con số không nói lên điều gì.
+
+Ba phát hiện thực nghiệm làm rõ bức tranh (đo 2026-08-08):
+
+1. **793/793 câu Zalo gold map được sang `article_id` có thật** trong corpus 61k → chạy được đúng benchmark cũ trên Graph RAG, loại bỏ biến "bộ câu hỏi".
+2. **Backend BM25 không phải thay thế trong suốt**: `rank_bm25` vs `bm25s` chỉ khớp ~66% thứ hạng top-4 và lệch 6.3 điểm % Recall@4 khi dùng một mình (58.0% vs 64.3%). Tốc độ: 351ms/truy vấn vs ~1ms (~360x).
+3. **Hybrid KÉM HƠN Dense-only ở 67k** (79.2% vs 82.1%) — ngược hẳn dự án cũ ở 10k. Nguyên nhân khớp với (2): BM25 yếu ở quy mô lớn nên RRF gộp nhánh yếu vào nhánh dense mạnh thành ra kéo xuống.
+
+### Decision
+
+**1. Benchmark: chạy MỌI hệ thống trên cùng 793 câu Zalo gold, cùng metric Recall@4/MRR.** Bộ 32 câu multi-hop giữ nguyên nhưng báo ở **bảng RIÊNG** (SC-001), không đặt cạnh Recall@4.
+
+**2. Backend BM25 cho baseline: `bm25s`** (không phải `rank_bm25` như chốt ban đầu ở ĐỢT 14). Hai lý do: (a) chính README dự án cũ viết *"cần đổi backend nếu scale vượt 10k văn bản"* — chạy `rank_bm25` ở 61k là chạy đúng cấu hình mà dự án cũ đã tự tuyên bố không phù hợp; (b) `bm25s` cho BM25 **mạnh hơn**, nên kết luận "Hybrid kéo xuống" trở thành phát biểu **thận trọng hơn** (với `rank_bm25` thì Hybrid còn tệ hơn nữa). Kèm theo: báo **thêm** một dòng Hybrid dùng `rank_bm25` để **lượng hoá** ảnh hưởng backend thay vì để nó thành biến gây nhiễu ẩn.
+
+**3. Số 2k/10k của dự án cũ = BỐI CẢNH LỊCH SỬ, không phải dòng so sánh.** Ghi ở khối riêng, nêu rõ: đo trên corpus nhỏ hơn, backend BM25 khác, và trong repo khác. Mọi so sánh có ý nghĩa đều nằm trong nhóm "đo mới ở 67k trong dự án này".
+
+**4. Graph RAG phải báo HAI con số recall, không được báo một.** Danh sách xếp hạng của Graph RAG là entry point (dense, tối đa `top_k`) trước, traversal sau — nên với `top_k=5`, `k=4` thì **4 slot đầu luôn là entry point**, traversal không thể chen vào top-4. Hệ quả: `Recall@4` của Graph RAG **theo cấu trúc** không thể cao hơn dense-only. Vì vậy báo cả `recall_at_k` (so sánh trực tiếp được) **và** `recall_expanded` (đáp án nằm bất kỳ đâu trong tập entry+traversal — cho thấy traversal thêm được gì, nhưng KHÔNG so được với Recall@4 vì tập ứng viên lớn hơn nhiều).
+
+### Options Considered
+
+- **Giữ nguyên G1 nguyên văn** (so 32 câu multi-hop với 93.3% ở 10k) — bị loại: ba biến gây nhiễu cùng lúc, và người đọc CV có kinh nghiệm sẽ phát hiện ngay.
+- **Chỉ đo lại baseline cũ ở 67k bằng `rank_bm25`** cho trung thành tuyệt đối — bị loại: chạy đúng cấu hình mà dự án cũ đã tuyên bố không phù hợp ở quy mô này; vẫn giữ như một dòng phụ để lượng hoá.
+- **Chỉ báo `recall_expanded` cho Graph RAG** (số cao hơn, dễ kể chuyện) — **bị loại vì không trung thực**: tập ứng viên lớn hơn nhiều nên không cùng thang đo với Recall@4.
+
+### Trade-off Analysis
+
+Đánh đổi chính: bảng kết quả **phức tạp hơn** (nhiều dòng, nhiều chú thích) và có khả năng cho ra kết luận **kém hấp dẫn hơn** cho Graph RAG (xem ADR này mục 4 + `CHECKLIST-GRAPHRAG-DUYET.md` mục I1). Chấp nhận, vì một bảng đơn giản nhưng so sai thì không có giá trị nào — kể cả giá trị CV.
+
+### Consequences
+
+- Cần thêm `scripts/eval_graph_on_zalo_gold.py` (Graph RAG trên 793 câu Zalo) — trước đó KHÔNG tồn tại, nên trước ADR này **chưa từng có so sánh nào hợp lệ**.
+- Bảng T018 sẽ có 2 khối: "đo mới ở 67k trong dự án này" (so sánh được với nhau) và "bối cảnh lịch sử 2k/10k" (không so trực tiếp).
+- Luận điểm giá trị của Graph RAG cần phát biểu lại — không dựa vào Recall@4 (xem mục I1 chờ Khang quyết).
+
+### Action Items
+
+- [x] Đo `793/793` câu gold map được sang `article_id` thật.
+- [x] Đo so sánh backend BM25 ở 61k (`scripts/quality_fixtures/bm25_backend_bench_61k.txt`).
+- [x] Viết `scripts/eval_graph_on_zalo_gold.py` (báo cả 2 con số recall).
+- [x] Thêm dòng "2b. Hybrid (rank_bm25 + dense, RRF)" vào script baseline.
+- [ ] Chạy xong Hybrid+Reranker trên 793 câu, rồi dựng bảng cuối cùng.
+- [ ] Quyết I1 (cách phát biểu giá trị Graph RAG) trước khi viết README/T022.
+
 ## 📌 Quyết định khác (chưa đủ điều kiện thành ADR riêng)
 
 - **LLM extraction chạy 1 lần lúc ingest, không cache lại theo mỗi query** — vì AMENDS/CONFLICTS_WITH là thuộc tính tĩnh của văn bản, không đổi theo câu hỏi người dùng.

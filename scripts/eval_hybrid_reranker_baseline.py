@@ -405,6 +405,41 @@ def run_eval(
     else:
         results.append(_evaluate(name2, _hybrid, questions, expected, k, checkpoint))
 
+    # === Dong "2b": Hybrid dung rank_bm25 thay vi bm25s ===
+    # MUC DICH: LUONG HOA anh huong cua backend BM25 len ket qua da fuse, thay
+    # vi de no thanh mot bien gay nhieu AN. Do that o DOT 14: hai backend chi
+    # khop ~66% thu hang va lech 6.3 diem % Recall@4 khi dung MOT MINH - nen
+    # khong the gia dinh "fuse xong thi giong nhau".
+    #
+    # Chi chay tang BM25+RRF (KHONG reranker): reranker la phan dat nhat (~7.5s/
+    # cau) va chi phi GIONG NHAU du backend nao, nen chay lai voi no chi de
+    # tra gia gap doi cho phan khong doi.
+    name2b = "2b. Hybrid (rank_bm25 + dense, RRF)"
+    logger.info("--- 2b: %s ---", name2b)
+    if name2b in checkpoint["completed"]:
+        logger.info("[skip - da xong] %s", name2b)
+        results.append(checkpoint["completed"][name2b])
+    else:
+        from rank_bm25 import BM25Okapi
+
+        logger.info("  build index rank_bm25 (backend cua du an cu)...")
+        rank_index = BM25Okapi(corpus_tokens)
+
+        def _rank_bm25_topk(query: str, k_: int) -> list[str]:
+            import numpy as np
+
+            scores = rank_index.get_scores(tokenize(query))
+            return [ids[i] for i in np.argsort(scores)[::-1][:k_]]
+
+        def _hybrid_rank_bm25(q: str) -> list[str]:
+            return reciprocal_rank_fusion(
+                [_rank_bm25_topk(q, fetch_k), dense_fetch_by_q[q]]
+            )
+
+        results.append(
+            _evaluate(name2b, _hybrid_rank_bm25, questions, expected, k, checkpoint)
+        )
+
     name3 = "3. Hybrid + Reranker"
     logger.info("--- 3/3: %s ---", name3)
     hybrid_candidates_by_q = {q: _hybrid(q)[:fetch_k] for q in questions}
