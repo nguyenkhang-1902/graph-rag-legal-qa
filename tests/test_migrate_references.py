@@ -487,3 +487,37 @@ def test_resume_without_checkpoint_is_refused():
             stale_doc_ids=[],
             checkpoint_exists=lambda: False,
         )
+
+
+def test_reconcile_keeps_clause_vectors_whose_parent_article_exists():
+    # QUA MIN phat hien truoc khi chay backfill (2026-08-08): T028 them vector
+    # cap Khoan voi id `{article_id}#khoan-N`. Cac id nay KHONG phai article_id
+    # nen `reconcile` se coi chung la rac va XOA SACH 36,585 vector Khoan o lan
+    # migration sau - pha huy toan bo cong suc ~55 phut GPU trong im lang.
+    # Phai map id Khoan ve Dieu CHA truoc khi kiem tra.
+    class FakeCollection:
+        def __init__(self):
+            self.deleted = []
+
+        def get(self, include=None):
+            return {"ids": [
+                "co-that_dieu-1",
+                "co-that_dieu-1#khoan-1",   # Dieu cha CO that -> phai GIU
+                "co-that_dieu-1#khoan-2",   # -> phai GIU
+                "da-xoa_dieu-9#khoan-1",    # Dieu cha KHONG con -> xoa
+                "da-xoa_dieu-9",            # -> xoa
+            ]}
+
+        def delete(self, ids):
+            self.deleted.append(sorted(ids))
+
+    col = FakeCollection()
+    client = _mock_client()
+    client.run.side_effect = lambda q, **p: (
+        [{"article_id": "co-that_dieu-1"}] if "article_id" in q else [{"n": 0}]
+    )
+
+    n = reconcile_chroma_with_neo4j(client, collection=col)
+
+    assert n == 2, "phai xoa dung 2 id cua Dieu da bien mat"
+    assert col.deleted == [["da-xoa_dieu-9", "da-xoa_dieu-9#khoan-1"]]

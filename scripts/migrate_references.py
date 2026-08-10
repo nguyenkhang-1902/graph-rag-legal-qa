@@ -232,7 +232,16 @@ def reconcile_chroma_with_neo4j(
     # include=[] -> chi lay id, khong keo embedding ve (do that: 60,679 id
     # trong ~0.9s).
     chroma_ids = collection.get(include=[])["ids"]
-    orphan_ids = [cid for cid in chroma_ids if cid not in real_ids]
+
+    # QUA MIN da tranh duoc (2026-08-08): T028 them vector cap Khoan voi id
+    # `{article_id}#khoan-N`. Cac id nay KHONG phai article_id, nen neu so
+    # THANG voi `real_ids` thi TOAN BO 36,585 vector Khoan bi coi la rac va bi
+    # xoa sach o lan migration sau - pha huy ~55 phut GPU trong im lang. Phai
+    # map ve Dieu CHA truoc khi kiem tra: vector Khoan chi la rac khi Dieu cha
+    # cua no khong con.
+    from app.retrieval.entry_point import _article_id_of
+
+    orphan_ids = [cid for cid in chroma_ids if _article_id_of(cid) not in real_ids]
 
     logger.info(
         "doi chieu Chroma<->Neo4j: %d ban ghi Chroma, %d Article that, "
