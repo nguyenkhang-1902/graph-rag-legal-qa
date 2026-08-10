@@ -168,3 +168,135 @@ def test_real_model_and_chroma_confirms_distance_to_similarity_conversion(
     assert matched.similarity > 0.99
     # van ban khac chu de hoan toan khong duoc vuot threshold da ghim (0.75)
     assert "dieu_khac" not in article_ids
+
+
+# === T028: gop vector cap KHOAN ve article_id, lay similarity CAO NHAT =====
+# BOI CANH (do that 2026-08-08): mot vector cho ca Dieu lam loang tin hieu -
+# Spearman(similarity, do dai Dieu) = -0.312, nhom Dieu dai nhat fail 37% so
+# voi 15% o nhom ngan nhat. Pilot tren 274 cau gold: dung similarity cao nhat
+# cua tung KHOAN thay vi ca Dieu cuu duoc 39/81 cau dang fail (48%).
+#
+# Collection se chua CA HAI loai vector:
+#   - `{article_id}`                  -> vector ca Dieu (da co san)
+#   - `{article_id}#khoan-{n}`        -> vector tung Khoan (them moi)
+# Giu ca hai co chu dich: lay `max` khi gop nen vector Dieu lam SAN - chi co
+# the THEM, khong the MAT (pilot do duoc 10 cau bi ha neu CHI dung Khoan).
+#
+# HAI dieu bat buoc, neu thieu se LAM GIAM recall:
+#   1. Fetch RONG hon top_k roi moi gop - nhieu Khoan cua CUNG mot Dieu co the
+#      chiem nhieu slot, neu chi fetch top_k thi mot Dieu dai se day cac Dieu
+#      khac ra khoi ket qua.
+#   2. Gop ve article_id giu similarity CAO NHAT, KHONG tra ve id Khoan tho -
+#      traversal/graph lam viec tren article_id, id "...#khoan-3" khong ton tai
+#      trong Neo4j.
+
+
+def _fake_collection(ids, distances):
+    class FakeCollection:
+        def __init__(self):
+            self.last_n_results = None
+
+        def query(self, query_embeddings, n_results, **kwargs):
+            self.last_n_results = n_results
+            return {"ids": [ids], "distances": [distances]}
+
+    return FakeCollection()
+
+
+def test_clause_vector_id_is_mapped_back_to_article_id(monkeypatch):
+    from app.retrieval import entry_point as ep
+
+    monkeypatch.setattr(ep, "embed_texts", lambda texts: [[0.0]])
+    monkeypatch.setattr(ep.config, "SIMILARITY_THRESHOLD", 0.5)
+    col = _fake_collection(["luat-a_dieu-1#khoan-3"], [0.2])  # sim 0.8
+    monkeypatch.setattr(ep, "get_chroma_collection", lambda: col)
+
+    results = ep.find_entry_points("cau hoi", top_k=5)
+
+    assert [r.article_id for r in results] == ["luat-a_dieu-1"]
+    assert results[0].similarity == pytest.approx(0.8)
+
+
+def test_multiple_clauses_of_same_article_collapse_to_one_entry_with_max_sim(monkeypatch):
+    from app.retrieval import entry_point as ep
+
+    monkeypatch.setattr(ep, "embed_texts", lambda texts: [[0.0]])
+    monkeypatch.setattr(ep.config, "SIMILARITY_THRESHOLD", 0.5)
+    col = _fake_collection(
+        ["luat-a_dieu-1#khoan-1", "luat-a_dieu-1#khoan-2", "luat-b_dieu-9"],
+        [0.4, 0.1, 0.3],  # sim 0.6, 0.9, 0.7
+    )
+    monkeypatch.setattr(ep, "get_chroma_collection", lambda: col)
+
+    results = ep.find_entry_points("cau hoi", top_k=5)
+
+    assert [r.article_id for r in results] == ["luat-a_dieu-1", "luat-b_dieu-9"]
+    assert results[0].similarity == pytest.approx(0.9)  # max cua 0.6 va 0.9
+
+
+def test_article_vector_acts_as_floor_so_clause_can_only_help(monkeypatch):
+    # Vector ca Dieu (0.8) cao hon moi Khoan (0.55) -> ket qua phai la 0.8.
+    # Day la ly do GIU ca hai loai vector: chi THEM, khong MAT.
+    from app.retrieval import entry_point as ep
+
+    monkeypatch.setattr(ep, "embed_texts", lambda texts: [[0.0]])
+    monkeypatch.setattr(ep.config, "SIMILARITY_THRESHOLD", 0.5)
+    col = _fake_collection(
+        ["luat-a_dieu-1", "luat-a_dieu-1#khoan-1"], [0.2, 0.45]
+    )
+    monkeypatch.setattr(ep, "get_chroma_collection", lambda: col)
+
+    results = ep.find_entry_points("cau hoi", top_k=5)
+
+    assert len(results) == 1
+    assert results[0].similarity == pytest.approx(0.8)
+
+
+def test_fetches_wider_than_top_k_so_clauses_do_not_crowd_out_articles(monkeypatch):
+    # Neu chi fetch top_k thi nhieu Khoan cua CUNG mot Dieu se day cac Dieu
+    # khac ra khoi ket qua -> GIAM recall. Phai fetch rong hon roi moi gop.
+    from app.retrieval import entry_point as ep
+
+    monkeypatch.setattr(ep, "embed_texts", lambda texts: [[0.0]])
+    monkeypatch.setattr(ep.config, "SIMILARITY_THRESHOLD", 0.0)
+    col = _fake_collection(["luat-a_dieu-1"], [0.1])
+    monkeypatch.setattr(ep, "get_chroma_collection", lambda: col)
+
+    ep.find_entry_points("cau hoi", top_k=5)
+
+    assert col.last_n_results > 5, (
+        f"chi fetch {col.last_n_results} vector cho top_k=5 - Khoan se day "
+        "cac Dieu khac ra khoi ket qua"
+    )
+
+
+def test_still_returns_at_most_top_k_articles_after_grouping(monkeypatch):
+    from app.retrieval import entry_point as ep
+
+    monkeypatch.setattr(ep, "embed_texts", lambda texts: [[0.0]])
+    monkeypatch.setattr(ep.config, "SIMILARITY_THRESHOLD", 0.0)
+    ids = [f"luat-a_dieu-{i}" for i in range(1, 11)]
+    col = _fake_collection(ids, [0.1 * i for i in range(1, 11)])
+    monkeypatch.setattr(ep, "get_chroma_collection", lambda: col)
+
+    results = ep.find_entry_points("cau hoi", top_k=3)
+
+    assert len(results) == 3
+    assert [r.article_id for r in results] == ids[:3]  # 3 sim cao nhat
+
+
+def test_threshold_applied_to_grouped_max_not_to_each_clause(monkeypatch):
+    # Khoan-1 duoi nguong, Khoan-2 tren nguong -> Dieu PHAI duoc giu (theo max).
+    from app.retrieval import entry_point as ep
+
+    monkeypatch.setattr(ep, "embed_texts", lambda texts: [[0.0]])
+    monkeypatch.setattr(ep.config, "SIMILARITY_THRESHOLD", 0.65)
+    col = _fake_collection(
+        ["luat-a_dieu-1#khoan-1", "luat-a_dieu-1#khoan-2"], [0.5, 0.3]
+    )
+    monkeypatch.setattr(ep, "get_chroma_collection", lambda: col)
+
+    results = ep.find_entry_points("cau hoi", top_k=5)
+
+    assert [r.article_id for r in results] == ["luat-a_dieu-1"]
+    assert results[0].similarity == pytest.approx(0.7)
