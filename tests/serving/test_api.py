@@ -293,3 +293,84 @@ def test_call_ollama_raises_on_http_error(monkeypatch):
 
     with pytest.raises(httpx.HTTPStatusError):
         api._call_ollama("mot prompt test")
+
+
+# === T028: gioi han ngu canh + dung THU TU XEP HANG ========================
+# Sau khi them vector cap Khoan, so ung vien trung binh tang 6.0 -> 17.1
+# Article/cau hoi. Do that tren 793 cau Zalo gold: recall bao hoa o muc cat 10
+# (71.1% o k=4, 75.4% tu k=10 tro len), nen cat o 10 khong mat gi ma giam 41%
+# ngu canh.
+#
+# BUG TIEM AN duoc sua cung luc: truoc day `_build_prompt`/citation_path sap
+# theo `sorted(contexts)` - thu tu CHU CAI cua article_id, khong lien quan do
+# lien quan. Chua lo ra vi khong ai cat; nhung khi da cat thi cat theo chu cai
+# se giu 10 Dieu TUY Y.
+
+
+def test_context_is_capped_at_max_context_articles(monkeypatch, test_client):
+    monkeypatch.setattr(api.config, "MAX_CONTEXT_ARTICLES", 3)
+    monkeypatch.setattr(
+        api,
+        "find_entry_points",
+        MagicMock(return_value=[EntryPointResult(article_id="art_entry", similarity=0.9)]),
+    )
+    many = [f"art_t{i}" for i in range(10)]
+    traversal_result = TraversalResult(
+        visited_article_ids={"art_entry", *many},
+        edges=[TraversalEdge("art_entry", t, "REFERENCES") for t in many],
+        external_article_ids=set(),
+        visited_term_ids=set(),
+    )
+    monkeypatch.setattr(api, "traverse", MagicMock(return_value=traversal_result))
+    monkeypatch.setattr(
+        api.embedder, "get_texts",
+        MagicMock(return_value={aid: f"noi dung {aid}" for aid in ["art_entry", *many]}),
+    )
+    monkeypatch.setattr(api, "Neo4jClient", lambda *a, **kw: _FakeNeo4jClient())
+    monkeypatch.setattr(api, "_call_ollama", MagicMock(return_value="tra loi"))
+
+    body = test_client.post("/chat", json={"question": "cau hoi"}).json()
+
+    assert len(body["citation_path"]) == 3, "khong cat theo MAX_CONTEXT_ARTICLES"
+
+
+def test_capped_context_keeps_entry_point_and_ranked_order_not_alphabetical(
+    monkeypatch, test_client
+):
+    # Entry point ten "zzz" (cuoi bang chu cai) PHAI duoc giu; Article traversal
+    # ten "aaa" (dau bang chu cai) phai xuong sau. Neu con sap theo chu cai thi
+    # test nay do.
+    monkeypatch.setattr(api.config, "MAX_CONTEXT_ARTICLES", 2)
+    monkeypatch.setattr(
+        api,
+        "find_entry_points",
+        MagicMock(return_value=[EntryPointResult(article_id="zzz_entry", similarity=0.9)]),
+    )
+    traversal_result = TraversalResult(
+        visited_article_ids={"zzz_entry", "aaa_first_edge", "bbb_second_edge"},
+        edges=[
+            TraversalEdge("zzz_entry", "aaa_first_edge", "REFERENCES"),
+            TraversalEdge("zzz_entry", "bbb_second_edge", "REFERENCES"),
+        ],
+        external_article_ids=set(),
+        visited_term_ids=set(),
+    )
+    monkeypatch.setattr(api, "traverse", MagicMock(return_value=traversal_result))
+    monkeypatch.setattr(
+        api.embedder, "get_texts",
+        MagicMock(return_value={
+            "zzz_entry": "noi dung entry",
+            "aaa_first_edge": "noi dung canh 1",
+            "bbb_second_edge": "noi dung canh 2",
+        }),
+    )
+    monkeypatch.setattr(api, "Neo4jClient", lambda *a, **kw: _FakeNeo4jClient())
+    monkeypatch.setattr(api, "_call_ollama", MagicMock(return_value="tra loi"))
+
+    body = test_client.post("/chat", json={"question": "cau hoi"}).json()
+    ids = [c["article_id"] for c in body["citation_path"]]
+
+    assert ids == ["zzz_entry", "aaa_first_edge"], (
+        "phai theo thu tu xep hang (entry point truoc), khong theo chu cai"
+    )
+    assert body["citation_path"][0]["is_entry_point"] is True

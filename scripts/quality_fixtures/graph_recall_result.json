@@ -2,7 +2,7 @@
   "total_questions": 32,
   "strict_recall": 0.90625,
   "lenient_recall": 0.9310344827586207,
-  "mrr": 0.9166666666666667,
+  "mrr": 0.9010416666666667,
   "per_question": [
     {
       "all_found": true,
@@ -225,7 +225,7 @@
       "all_found": true,
       "found_count": 2,
       "expected_count": 2,
-      "reciprocal_rank": 1.0,
+      "reciprocal_rank": 0.5,
       "id": "mh-032"
     }
   ]

@@ -79,6 +79,13 @@
 
 - [ ] **J2. Cách trình bày T018 trong README** (liên quan I1 vẫn đang treo): số mạnh nhất của Graph RAG là **recall mở rộng 87,5% với 26s** so với Hybrid+Reranker **87,6% với 3.920s (~150x rẻ hơn)**. Nhưng hai con số **không cùng thang đo** (10,2 ứng viên vs 4). Cần chốt: trình bày như "đạt recall tương đương với chi phí thấp hơn ~150x, với 2,5x số ứng viên" (trung thực, hơi dài) hay tách hẳn hai bảng?
 
+## 🚨 ĐIỂM MỚI CẦN KHANG QUYẾT (2026-08-10, sau T028)
+
+- [ ] **K1. Bug `clause_id` trùng làm mất 4.149 Clause (2,4%) — có sửa không?** Parser coi mọi dòng `N. ` ở cột 0 là Khoản mới, nên Điều **sửa đổi** (trích lại nguyên văn Điều khác) có `so_khoan` lặp: `[1, 1, 2, 2, 17, 18, 3, ...]`. Vì `clause_id` trùng nhau + upsert dùng MERGE → hai Khoản khác nhau bị **gộp âm thầm thành một node**. Đo thật: 335/60.568 Điều (0,6%) bị ảnh hưởng, 4.149/169.561 Clause (2,4%) bị mất; nặng nhất `12-2017-qh14_dieu-1` mất **341 Khoản**.
+  ⚠️ **Hiện chưa ảnh hưởng chức năng** — Clause node không dùng trong retrieval (chỉ Article được embed). Chỉ ảnh hưởng **toàn vẹn dữ liệu**, và sẽ ảnh hưởng nếu sau này dùng Clause. Sửa = đổi `clause_id` (thêm vị trí) cho 165k node → cần **re-ingest** (~2 giờ). Ba hướng: (a) sửa ngay cho dữ liệu sạch; (b) hoãn tới khi thực sự cần Clause; (c) chấp nhận và ghi rõ hạn chế trong README.
+
+- [ ] **K2. Đo chất lượng câu trả lời qua `/chat` (precision).** Mọi số liệu hiện có đều là **recall**. Cả J1 (ngưỡng 0.65) lẫn ADR-006 (giới hạn ngữ cảnh 10) đều là quyết định về đánh đổi recall↔precision mà **chưa có số liệu precision nào**. Không có phép đo này thì không thể nói ngưỡng 0.65 hay cap 10 là đúng hay sai.
+
 ## 🗂️ Lịch sử: nội dung H1/H2/H3 nguyên văn (đã chốt ở trên)
 
 - [x] **H1. Chạy migration T027 trên graph thật?** `python -m scripts.migrate_references data/raw --apply`. Cần thiết vì `upsert.py` dùng MERGE → edge sai cũ **không tự biến mất**; chạy lại ingest mà không migration sẽ cho graph chứa **cả** edge đúng lẫn edge sai (tệ hơn trước khi sửa). Sẽ xoá 37,875 REFERENCES + placeholder mồ côi rồi tạo lại. **Không mất dữ liệu nguồn** (tất cả tái tạo được từ `data/raw`); **KHÔNG đụng** Chroma/`chroma_id`, Term/DEFINES/USES_TERM, AMENDS/SUPERSEDES/CONFLICTS_WITH. Đã verify `EXPLAIN` trên Neo4j 5.26.28 + dry-run trên graph thật. Chưa rõ thời gian chạy (re-ingest 61k file). **Cho tới khi chạy, mọi số liệu đo được đều không phản ánh code hiện tại.**

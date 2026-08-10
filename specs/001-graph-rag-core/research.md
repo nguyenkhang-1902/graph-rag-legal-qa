@@ -294,6 +294,68 @@ Ba phát hiện thực nghiệm làm rõ bức tranh (đo 2026-08-08):
 - [ ] Chạy xong Hybrid+Reranker trên 793 câu, rồi dựng bảng cuối cùng.
 - [ ] Quyết I1 (cách phát biểu giá trị Graph RAG) trước khi viết README/T022.
 
+## 🗒️ ADR-006: Thêm vector cấp Khoản + giới hạn ngữ cảnh (T028)
+
+**Status:** Accepted
+**Date:** 2026-08-10
+**Deciders:** Khang
+
+### Context
+
+Khang chốt **giữ `SIMILARITY_THRESHOLD = 0.65`** (không hạ, vì ngưỡng thấp khó thuyết phục người khác) và yêu cầu rà soát lại toàn tuyến xử lý/embedding để tìm chỗ tối ưu. Điều này đổi bài toán: thay vì hạ thanh chắn, phải **nâng similarity của kết quả đúng lên trên 0.65**.
+
+Chẩn đoán bằng dữ liệu thật (793 câu Zalo gold):
+
+- Trần cứng ở ngưỡng 0.65 là **84,0%** — 127/793 câu có kết quả gần nhất *tốt nhất* đã dưới ngưỡng. Vì Chroma trả về theo similarity giảm dần, **tăng `top_k` không cứu được** nhóm này.
+- Trong 127 câu đó: đáp án đúng có **median rank = 3**, **78% nằm ở rank 1-5**, thiếu **median 0,045** similarity. → Đây là bài toán **độ lớn similarity**, KHÔNG phải xếp hạng. Nên HNSW tuning / tăng `top_k` / thêm reranker đều vô ích (riêng reranker: ở ngưỡng 0.65 chỉ 3,3 ứng viên/câu qua lọc, ít hơn k=4, nên rerank không thể đổi Recall@4).
+- Nguyên nhân độ lớn thấp: **một vector cho cả Điều làm loãng tín hiệu**. Spearman(similarity, độ dài Điều) = **−0,312**; nhóm Điều dài nhất fail **37%** so với **15%** ở nhóm ngắn nhất.
+- Tài nguyên đã có mà chưa dùng: **165.393 Clause** đã parse và lưu từ ĐỢT 3 nhưng chưa bao giờ embed.
+
+### Decision
+
+**1. Thêm vector cấp Khoản cho Điều dài, GIỮ NGUYÊN vector cấp Điều.** Chroma chứa cả `{article_id}` lẫn `{article_id}#khoan-{n}`; `find_entry_points` gộp về `article_id` lấy `max`. Vector Điều làm **sàn** nên chỉ có thể thêm, không thể mất.
+
+**2. Chỉ embed Khoản của Điều dài (>2.700 ký tự) có ≥2 Khoản** — 36.585 Khoản thay vì 165.393. Điều ngắn đã có similarity tốt (fail 15%); Điều 1 Khoản thì vector Khoản gần trùng vector Điều.
+
+**3. Dừng ở 91% (32.807 vector), không chạy 9% còn lại.** 3.258 Khoản còn lại là những Khoản **dài nhất** — tức loãng nhất, ít tác dụng nhất — mà tốn thêm ~3 giờ GPU.
+
+**4. Giới hạn ngữ cảnh ở `MAX_CONTEXT_ARTICLES = 10`.** Đo thật: recall bão hoà đúng ở k=10 (71,1% ở k=4 → 75,4% từ k=10 trở lên, không tăng thêm tới k=20). Cắt ở 10 **không mất gì** mà giảm **41%** lượng ngữ cảnh.
+
+**5. Đưa logic xếp hạng về `app/retrieval/ranking.py`** để `serving/api.py` và `scripts/eval_graph_recall.py` dùng cùng một nguồn.
+
+### Options Considered
+
+- **Hạ `SIMILARITY_THRESHOLD` xuống 0.55** — đo được sẽ cho 80,7% (so với 69,5%), tức **+11,2 điểm %**, rẻ hơn hẳn mọi phương án khác. **Khang loại**: ngưỡng thấp khó thuyết phục người khác. Ghi lại vì đây là phương án hiệu quả nhất về mặt số liệu thuần.
+- **Chunk theo cửa sổ trượt cho mọi Điều dài** — mạnh hơn dùng Khoản (phủ cả 784 Điều dài không có Khoản) nhưng phải viết logic chunk mới; hoãn.
+- **HyDE / query expansion bằng LLM** — biến bất đối xứng câu hỏi↔văn bản thành tương đồng văn bản↔văn bản, có thể nâng similarity mạnh. Chi phí: một lần gọi LLM mỗi truy vấn → tăng latency. Chưa thử.
+- **Embed hết 165.393 Khoản** — loại: Điều ngắn không cần, tốn ~4 giờ.
+
+### Trade-off Analysis
+
+**Lợi ích đo được nhỏ hơn dự đoán 3 lần**: pilot dự đoán +4,9 điểm %, thực tế **+1,6 điểm %** Recall@4 (69,5% → 71,1%) và **+2,9 điểm %** recall mở rộng (72,5% → 75,4%).
+
+Lý do chênh: pilot đo *độ lớn similarity* của đáp án đúng (cố tình, để tránh thiên vị), nên **không phản ánh cạnh tranh xếp hạng** — vector Khoản cũng nâng similarity của distractor. Bằng chứng: ứng viên trung bình tăng **6,0 → 17,1**. Con số pilot đúng ra phải gọi là **giới hạn trên**, không phải dự đoán.
+
+Chi phí kèm theo: MRR của T017 giảm nhẹ **0,917 → 0,901** (thêm ứng viên cạnh tranh làm đáp án đúng tụt hạng). Recall của T017 không đổi (90,6%/93,1%).
+
+### Consequences
+
+- Kết quả cuối: T018 Graph RAG **71,1%** Recall@4 / **75,4%** mở rộng; T017 **90,6%/93,1%**, MRR 0,901.
+- `/chat` giờ cắt ngữ cảnh ở 10 Article **theo thứ tự liên quan**. Sửa luôn một bug tiềm ẩn: trước đó prompt và `citation_path` sắp theo **thứ tự chữ cái** của `article_id` — chưa lộ ra vì không ai cắt, nhưng khi đã cắt thì sẽ giữ 10 Điều tuỳ ý.
+- **Chưa có số liệu về chất lượng câu trả lời** — mọi đánh giá ở đây là recall. Ngưỡng và giới hạn ngữ cảnh đều liên quan tới precision mà chưa được đo qua `/chat`.
+
+### Action Items
+
+- [x] Đo tương quan độ dài ↔ similarity, chẩn đoán 127 câu zero-entry.
+- [x] Pilot trên 274 câu (đo độ lớn similarity, tránh thiên vị xếp hạng).
+- [x] `find_entry_points` gộp vector Khoản; verify không hồi quy trước khi embed.
+- [x] Embed 32.807 vector Khoản (91%); quyết định dừng phần còn lại.
+- [x] `MAX_CONTEXT_ARTICLES = 10` chọn theo đường cong bão hoà đo được.
+- [x] `app/retrieval/ranking.py` — bỏ bản sao logic xếp hạng thứ hai.
+- [ ] Đo chất lượng câu trả lời qua `/chat` (precision) — chưa làm, cần cho cả J1 lẫn ADR này.
+- [ ] Chunk cửa sổ cho 784 Điều dài không có Khoản — chưa làm.
+- [ ] Sửa bug `clause_id` trùng (4.149 Clause bị gộp mất) — cần Khang quyết, xem CHECKLIST.
+
 ## 📌 Quyết định khác (chưa đủ điều kiện thành ADR riêng)
 
 - **LLM extraction chạy 1 lần lúc ingest, không cache lại theo mỗi query** — vì AMENDS/CONFLICTS_WITH là thuộc tính tĩnh của văn bản, không đổi theo câu hỏi người dùng.

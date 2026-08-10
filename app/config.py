@@ -26,6 +26,15 @@ MAX_HOP: int = int(os.getenv("MAX_HOP", "2"))
 # split-half xac nhan khong phai overfitting - xem ADR-004 chi tiet.
 SIMILARITY_THRESHOLD: float = float(os.getenv("SIMILARITY_THRESHOLD", "0.65"))
 
+# So Article toi da dua vao ngu canh cho LLM (T028). 10 KHONG phai so tuy y -
+# do that tren 793 cau Zalo gold cho thay recall BAO HOA dung o day:
+#   k        4      6      8     10     12     15     20
+#   Recall 71.1%  74.0%  75.2%  75.4%  75.4%  75.4%  75.4%
+# Sau khi them vector cap Khoan, so ung vien trung binh tang 6.0 -> 17.1
+# Article/cau hoi. Cat o 10 KHONG MAT GI ve recall ma giam 41% luong ngu canh
+# (LLM nhanh hon, it nhieu hon). Doi so nay thi PHAI do lai, khong doan.
+MAX_CONTEXT_ARTICLES: int = int(os.getenv("MAX_CONTEXT_ARTICLES", "10"))
+
 # --- Ingest (spec.md FR-008 / research.md ADR-002) ---
 INGEST_BATCH_SIZE: int = int(os.getenv("INGEST_BATCH_SIZE", "200"))
 

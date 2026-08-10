@@ -66,6 +66,7 @@ from pathlib import Path
 from app import config
 from app.graph_store.neo4j_client import Neo4jClient
 from app.retrieval.entry_point import find_entry_points
+from app.retrieval.ranking import rank_article_ids
 from app.retrieval.traversal import traverse
 
 logger = logging.getLogger(__name__)
@@ -97,16 +98,13 @@ def _ranked_retrieved_article_ids(
 
     traversal_result = traverse(client, entry_ids, max_hop=max_hop)
 
-    ranked = list(entry_ids)
-    seen = set(ranked)
-    for edge in traversal_result.edges:
-        if edge.relationship_type != "REFERENCES":
-            continue
-        if edge.to_id not in seen:
-            seen.add(edge.to_id)
-            ranked.append(edge.to_id)
-
-    return ranked
+    # T028: dung CHUNG `app.retrieval.ranking.rank_article_ids` voi
+    # `serving/api.py` (Dieu 1). Truoc day day la ban sao THU HAI cua cung
+    # logic - de vay thi `/chat` va so lieu eval se dan lech nhau ma khong ai
+    # biet. `limit=None`: eval do TOAN BO danh sach (viec cat o
+    # config.MAX_CONTEXT_ARTICLES la quyet dinh cua tang serving, khong phai
+    # cua phep do).
+    return rank_article_ids(entry_ids, traversal_result, limit=None)
 
 
 def _evaluate_question(

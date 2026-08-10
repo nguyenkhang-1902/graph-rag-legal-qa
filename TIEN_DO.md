@@ -262,6 +262,45 @@
 
 Docker Desktop tự tắt giữa phiên → Neo4j `ServiceUnavailable`. Không phải lỗi code (lần 3 rồi: ĐỢT 8, ĐỢT 13, lần này). Khởi động lại Docker Desktop là xong, dữ liệu nguyên vẹn (60,568 Article).
 
+## 14. 🔬 ĐỢT 17 — T028: rà soát toàn tuyến embedding, thêm vector cấp Khoản + giới hạn ngữ cảnh (2026-08-10)
+
+> Chi tiết quyết định + phương án đã loại: `research.md` **ADR-006**.
+
+- [x] **Khang chốt GIỮ `SIMILARITY_THRESHOLD = 0.65`** (không hạ — ngưỡng thấp khó thuyết phục người khác), và yêu cầu rà soát toàn tuyến để tìm chỗ tối ưu. Điều này đổi bài toán: **nâng similarity của kết quả đúng lên trên ngưỡng**, thay vì hạ ngưỡng.
+- [x] **Xác định TRẦN CỨNG ở ngưỡng 0.65 là 84,0%**: 127/793 câu có kết quả gần nhất *tốt nhất* đã dưới 0.65. Vì Chroma trả về theo similarity giảm dần, **tăng `top_k` không cứu được** nhóm này — chỉ nâng similarity mới cứu được.
+- [x] **Chẩn đoán quyết định — bài toán ĐỘ LỚN similarity, không phải xếp hạng**: trong 127 câu đó, đáp án đúng có **median rank 3**, **78% ở rank 1-5**, chỉ thiếu **median 0,045**. Suy ra HNSW tuning / tăng `top_k` / thêm reranker đều **vô ích**. Riêng reranker còn có lý do cấu trúc: ở ngưỡng 0.65 chỉ 3,3 ứng viên/câu qua lọc, **ít hơn k=4**, nên mọi ứng viên đã nằm trong top-4 — rerank không thể đổi Recall@4.
+- [x] **Nguyên nhân gốc**: một vector cho cả Điều làm **loãng tín hiệu**. Spearman(similarity, độ dài Điều) = **−0,312**; nhóm Điều dài nhất fail **37%** so với **15%** ở nhóm ngắn nhất (2,5x tệ hơn).
+- [x] **Tài nguyên đã trả tiền mà để không**: **165.393 Clause** đã parse và lưu từ ĐỢT 3 nhưng **chưa bao giờ embed**.
+- [x] **Pilot thiết kế tránh thiên vị**: đo *độ lớn similarity* (không đo Recall) — vì nếu chỉ embed Khoản của đáp án đúng rồi đo Recall thì đáp án đúng được lợi thế mà distractor không có. Kết quả: 39/81 câu đang fail (48%) vượt được 0.65.
+- [x] ⚠️ **PILOT DỰ ĐOÁN SAI GẤP 3 LẦN**: dự đoán +4,9 điểm %, thực tế **+1,6 điểm %**. Lý do: pilot không thể phản ánh **cạnh tranh xếp hạng** — vector Khoản cũng nâng similarity của distractor (bằng chứng: ứng viên TB tăng **6,0 → 17,1**). Tôi có nêu hạn chế này nhưng vẫn trích +4,9 như *dự đoán* thay vì gọi đúng bản chất là **giới hạn trên**. Bài học: pilot đo một chiều thì phải phát biểu là bound, không phải estimate.
+- [x] **Thứ tự triển khai có chủ đích**: sửa `find_entry_points` (gộp vector Khoản về `article_id`, lấy max) **TRƯỚC** khi embed — lúc chưa có vector Khoản thì gộp là no-op, nên verify được không hồi quy (đo lại T018 ra đúng 69,5%/72,5%/0,593 y nguyên).
+- [x] **Embed 32.807/36.065 vector Khoản (91%), quyết định DỪNG phần còn lại.** 3.258 Khoản còn lại là những Khoản **dài nhất** — loãng nhất, ít tác dụng nhất — mà tốn thêm ~3 giờ GPU. Ngoại suy từ 91% chỉ cho +1,6pp thì phần này gần bằng 0.
+- [x] **Tránh được 2 quả mìn nhờ đọc code liên quan trước khi chạy**:
+  1. `reconcile_chroma_with_neo4j` (T027) xoá mọi id Chroma không khớp article_id → sẽ **xoá sạch 36.585 vector Khoản** ở lần migration sau. Đã sửa: map id Khoản về Điều cha trước khi kiểm tra.
+  2. Chroma `DuplicateIDError` ở smoke test → lộ ra **bug có sẵn nghiêm trọng hơn** (mục dưới).
+- [x] 🐛 **BUG CÓ SẴN phát hiện được, chưa sửa**: parser coi mọi dòng `N. ` ở cột 0 là Khoản mới, nên Điều **sửa đổi** (trích lại nguyên văn Điều khác) có `so_khoan` lặp lại: `[1, 1, 2, 2, 17, 18, 3, ...]`. Đo thật: **335/60.568 Điều (0,6%)** bị trùng, và vì `clause_id` trùng + upsert dùng MERGE → **4.149 Clause (2,4%) bị gộp mất âm thầm** trong Neo4j. Nặng nhất `12-2017-qh14_dieu-1` mất **341 Khoản**. Script mới dùng **vị trí** làm id nên không dính bug; **bug gốc chưa sửa** — xem checklist **K1**. Lưu ý: Clause node hiện **không** dùng trong retrieval nên chưa ảnh hưởng chức năng, chỉ ảnh hưởng toàn vẹn dữ liệu.
+- [x] **`MAX_CONTEXT_ARTICLES = 10` chọn theo đường cong bão hoà ĐO ĐƯỢC**, không phải số tuỳ ý:
+
+  | k | 4 | 6 | 8 | **10** | 12 | 15 | 20 |
+  |---|---|---|---|---|---|---|---|
+  | Recall@k | 71,1% | 74,0% | 75,2% | **75,4%** | 75,4% | 75,4% | 75,4% |
+
+  Cắt ở 10 **không mất gì** mà giảm **41%** lượng ngữ cảnh cho LLM.
+- [x] **Sửa luôn một bug tiềm ẩn**: `_build_prompt` và `citation_path` trước đó sắp theo **thứ tự chữ cái** của `article_id`, không liên quan độ liên quan. Chưa lộ ra vì không ai cắt; nhưng khi đã cắt ở 10 thì sẽ giữ 10 Điều **tuỳ ý**. Đã đưa logic xếp hạng về `app/retrieval/ranking.py` để `serving/api.py` và `eval_graph_recall.py` dùng **cùng một nguồn** (trước đó là 2 bản sao — để vậy thì `/chat` và số liệu eval sẽ dần lệch nhau mà không ai biết).
+
+### Số liệu cuối ĐỢT 17
+
+| Phép đo | Trước T028 | Sau T028 |
+|---|---|---|
+| T018 Graph RAG Recall@4 (793 câu) | 69,5% | **71,1%** |
+| T018 recall mở rộng | 72,5% | **75,4%** |
+| T018 MRR | 0,593 | 0,599 |
+| T017 Strict / Lenient (32 câu) | 90,6% / 93,1% | **90,6% / 93,1%** (không đổi) |
+| T017 MRR | 0,917 | **0,901** (giảm nhẹ) |
+| Ứng viên TB | 6,0 | 17,1 → **cắt còn ≤10** |
+
+**Đánh giá thẳng**: cải thiện nhỏ (+1,6pp) kèm chi phí thật (MRR T017 giảm, ngữ cảnh phình rồi phải cắt) — **không phải thắng lợi như dự đoán ban đầu**. Phương án hiệu quả nhất về số liệu thuần vẫn là hạ ngưỡng xuống 0.55 (+11,2pp) nhưng Khang đã loại vì lý do thuyết phục người đọc; ghi lại trong ADR-006.
+
 ## 📍 Việc cần làm tiếp theo (đọc phần này trước khi bắt đầu phiên mới)
 
 > Cập nhật lại 2026-08-07 (sau khi đối chiếu với git log + Neo4j thật — mục này trước đó bị lạc hậu so với ĐỢT 13, vẫn ghi "migration bị ngắt" dù đã chạy xong).

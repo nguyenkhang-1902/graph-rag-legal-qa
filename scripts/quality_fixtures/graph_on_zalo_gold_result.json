@@ -1,12 +1,12 @@
 {
-  "recall_at_k": 0.694829760403531,
-  "recall_expanded": 0.725094577553594,
-  "mrr": 0.5933487960127302,
-  "hits_at_k": 551,
-  "hits_expanded": 575,
+  "recall_at_k": 0.7112232030264817,
+  "recall_expanded": 0.7540983606557377,
+  "mrr": 0.598786004523709,
+  "hits_at_k": 564,
+  "hits_expanded": 598,
   "total": 793,
   "k": 4,
-  "elapsed_s": 115.39100000000326,
+  "elapsed_s": 23.71899999998277,
   "top_k_entry": 5,
-  "avg_ranked_len": 5.986128625472888
+  "avg_ranked_len": 17.051702395964693
 }

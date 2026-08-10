@@ -36,6 +36,7 @@ from app import config
 from app.graph_store.neo4j_client import Neo4jClient
 from app.retrieval import embedder
 from app.retrieval.entry_point import find_entry_points
+from app.retrieval.ranking import rank_article_ids
 from app.retrieval.traversal import traverse
 
 logger = logging.getLogger(__name__)
@@ -163,13 +164,25 @@ def _classify_articles(
     return contexts
 
 
-def _build_prompt(question: str, contexts: dict[str, _ArticleContext]) -> str:
+def _build_prompt(
+    question: str,
+    contexts: dict[str, _ArticleContext],
+    article_order: list[str],
+) -> str:
     """Dung prompt tieng Viet: chi tra loi tu NGU CANH duoc cung cap, trich
     dan ro Dieu/article_id cho tung phan, va noi ro khi mot Dieu duoc nhac
     toi nhung khong co noi dung day du trong NGU CANH (case 1/3) - khop
-    FR-006 va edge case "external reference" cua spec.md/data-model.md."""
+    FR-006 va edge case "external reference" cua spec.md/data-model.md.
+
+    `article_order`: thu tu dua ngu canh vao prompt, theo DO LIEN QUAN GIAM
+    DAN (entry point truoc, roi Article traversal - xem
+    `app.retrieval.ranking.rank_article_ids`). Truoc T028 cho nay dung
+    `sorted(contexts)` tuc thu tu CHU CAI cua article_id - khong lien quan gi
+    do lien quan. Chua lo ra vi luc do khong ai cat bot ngu canh; nhung khi da
+    cat o `config.MAX_CONTEXT_ARTICLES` thi thu tu chu cai se giu 10 Dieu TUY Y,
+    va LLM cung doc ngu canh quan trong nhat o cuoi thay vi dau."""
     blocks: list[str] = []
-    for article_id in sorted(contexts):
+    for article_id in article_order:
         ctx = contexts[article_id]
         if ctx.is_external:
             blocks.append(f"[Điều: {article_id}] {_EXTERNAL_MARKER}")
@@ -231,14 +244,27 @@ def chat(request: ChatRequest) -> dict:
             "edges_used": [],
         }
 
-    entry_point_ids = {ep.article_id for ep in entry_points}
+    # Thu tu theo similarity giam dan (find_entry_points da sap) - GIU thu tu
+    # nay, khong dung set, vi `rank_article_ids` phu thuoc vao no.
+    ranked_entry_ids = [ep.article_id for ep in entry_points]
+    entry_point_ids = set(ranked_entry_ids)
 
     with Neo4jClient() as client:
         traversal_result = traverse(client, sorted(entry_point_ids))
-        texts = embedder.get_texts(sorted(traversal_result.visited_article_ids))
-        contexts = _classify_articles(client, traversal_result.visited_article_ids, texts)
+        # T028: xep hang roi CAT o config.MAX_CONTEXT_ARTICLES.
+        # Sau khi them vector cap Khoan, so ung vien trung binh tang 6.0 ->
+        # 17.1 Article/cau hoi; do that tren 793 cau Zalo gold cho thay recall
+        # BAO HOA o muc cat 10 (75.4% tu k=10 tro len), nen cat o day khong mat
+        # gi ve recall ma giam 41% ngu canh dua cho LLM.
+        # Cat theo THU TU XEP HANG, khong theo chu cai: entry point (co diem
+        # similarity that) truoc, roi Article traversal theo thu tu xuat hien.
+        ranked_ids = rank_article_ids(
+            ranked_entry_ids, traversal_result, limit=config.MAX_CONTEXT_ARTICLES
+        )
+        texts = embedder.get_texts(ranked_ids)
+        contexts = _classify_articles(client, set(ranked_ids), texts)
 
-    prompt = _build_prompt(request.question, contexts)
+    prompt = _build_prompt(request.question, contexts, ranked_ids)
     answer = _call_ollama(prompt)
 
     citation_path = [
@@ -248,7 +274,10 @@ def chat(request: ChatRequest) -> dict:
             "is_external": contexts[article_id].is_external,
             "is_preview": contexts[article_id].is_preview,
         }
-        for article_id in sorted(contexts)
+        # Theo THU TU XEP HANG (khong phai sorted() theo chu cai): entry point
+        # truoc roi Article traversal - de nguoi doc thay dung thu tu uu tien
+        # ma he thong da dung, va de khop voi thu tu trong prompt.
+        for article_id in ranked_ids
     ]
     edges_used = [
         {
