@@ -40,7 +40,9 @@ _DOCUMENT_QUERY = (
 _DOCUMENT_WITH_IDENTITY_QUERY = (
     "MERGE (d:Document {doc_id: $doc_id}) "
     "SET d.title = $title, d.batch_id = $batch_id, "
-    "d.so_hieu = $so_hieu, d.loai_vb = $loai_vb"
+    "d.so_hieu = $so_hieu, d.loai_vb = $loai_vb, "
+    "d.ngay_hieu_luc = $ngay_hieu_luc, d.ngay_het_hieu_luc = $ngay_het_hieu_luc, "
+    "d.trang_thai = $trang_thai, d.che_do = $che_do"
 )
 
 _CHAPTER_QUERY = (
@@ -251,13 +253,15 @@ def upsert_document(
     `parsed.title` khong rong thi THANG (tieu de van xuoi that - neu mot
     ngay nao do co - luon tot hon chi danh sinh ra tu so hieu).
 
-    Khi KHONG truyen `identity`, query dung la `_DOCUMENT_QUERY` cu - KHONG
-    gui so_hieu/loai_vb = null (se am tham xoa gia tri dung da ghi truoc do,
-    xem ghi chu tren `_DOCUMENT_WITH_IDENTITY_QUERY`).
+    BHXH-P1-T3: khi co `identity`, cung ghi `ngay_hieu_luc`,
+    `ngay_het_hieu_luc`, `trang_thai`, `che_do` tu chinh `identity` (cac
+    field nay mac dinh None/"active"/[] tren `DocIdentity` - caller chua co
+    du lieu hieu luc that se gui gia tri default do, khong phai bia).
 
-    `ngay_hieu_luc`/`source_file` cua Document VAN CHUA duoc set: khong suy
-    ra duoc tu ten file lan noi dung Dieu don le (corpus khong chua ngay
-    hieu luc o cap van ban) - gap DA BIET, khong phai bug.
+    Khi KHONG truyen `identity`, query dung la `_DOCUMENT_QUERY` cu - KHONG
+    gui so_hieu/loai_vb/ngay_hieu_luc/ngay_het_hieu_luc/trang_thai/che_do =
+    null (se am tham xoa gia tri dung da ghi truoc do, xem ghi chu tren
+    `_DOCUMENT_WITH_IDENTITY_QUERY`).
 
     Idempotent: goi lai ham nay nhieu lan voi CUNG mot ParsedDocument khong
     tao them node/canh BELONGS_TO trung lap (moi thao tac deu la MERGE,
@@ -278,6 +282,10 @@ def upsert_document(
             batch_id=batch_id,
             so_hieu=identity.so_hieu,
             loai_vb=identity.loai_vb,
+            ngay_hieu_luc=identity.ngay_hieu_luc,
+            ngay_het_hieu_luc=identity.ngay_het_hieu_luc,
+            trang_thai=identity.trang_thai,
+            che_do=identity.che_do,
         )
 
     for chapter in parsed.chapters:

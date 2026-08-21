@@ -51,7 +51,7 @@ sot, danh dau ro la CHUA GAP THAT.
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from app.extraction.slugify import normalize_eth, slugify_doc_name
 
@@ -99,12 +99,24 @@ class DocIdentity:
     `title`: chi danh chuan "{loai_vb} {so_hieu}", hoac CHI `so_hieu` khi
     `loai_vb` la None (khong bia tien to). KHONG phai tieu de van xuoi -
     tieu de do khong ton tai trong corpus (xem module docstring).
+
+    `ngay_hieu_luc`/`ngay_het_hieu_luc`/`trang_thai`/`che_do` (BHXH-P1-T3):
+    metadata hieu luc + che do BHXH cua van ban - CO DEFAULT de moi
+    constructor cu (`build_doc_identity`, `identity_from_doc_prefix`) van
+    tuong thich nguoc khong can sua. `trang_thai` mac dinh "active" (van
+    ban duoc coi la con hieu luc tru khi biet khac); `che_do` mac dinh
+    danh sach rong (dung `field(default_factory=list)` vi list la mutable
+    default - khong dung `= []` truc tiep tren dataclass).
     """
 
     doc_id: str
     so_hieu: str
     loai_vb: str | None
     title: str
+    ngay_hieu_luc: str | None = None
+    ngay_het_hieu_luc: str | None = None
+    trang_thai: str = "active"
+    che_do: list[str] = field(default_factory=list)
 
 
 def loai_vb_from_ma_hieu(ma_hieu: str) -> str | None:
