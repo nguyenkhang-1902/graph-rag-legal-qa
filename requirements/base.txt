@@ -17,3 +17,4 @@ python-dotenv==1.2.2
 
 # Testing
 pytest==9.1.1
+playwright  # T5: crawler vbpl.vn (Next.js RSC, can render JS)
