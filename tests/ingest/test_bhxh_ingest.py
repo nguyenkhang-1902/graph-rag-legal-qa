@@ -11,7 +11,13 @@ lap - dam bao test khop dung dinh dang `parse_vbpl_content` ky vong.
 from pathlib import Path
 from unittest.mock import MagicMock
 
-from scripts.fetch_bhxh_corpus import _strip_page_chrome, ingest_vbpl_doc
+import scripts.fetch_bhxh_corpus as fetch_bhxh_corpus_module
+from scripts.fetch_bhxh_corpus import (
+    _slug_from_url,
+    _strip_page_chrome,
+    fetch_bhxh_corpus,
+    ingest_vbpl_doc,
+)
 
 FIXTURE = (
     Path(__file__).resolve().parent.parent
@@ -126,3 +132,62 @@ def test_strip_page_chrome_returns_input_unchanged_when_marker_absent():
     # -> khong tim thay marker -> tra ve nguyen van, khong cat nham.
     clean_text = FIXTURE.read_text(encoding="utf-8")
     assert _strip_page_chrome(clean_text) == clean_text
+
+
+# --- fetch_bhxh_corpus: luu noi dung render ra dia (review round 1) -------
+#
+# Plan Step 5 yeu cau ghi noi dung da render ra dia TRUOC khi ingest, cho
+# phep parse/ingest lai OFFLINE ma khong crawl lai (cung mau hinh voi
+# scripts/fetch_zalo_legal_corpus.py). `fetch_vbpl_noidung` duoc
+# monkeypatch de test nay KHONG dung Playwright/mang that.
+
+
+def test_fetch_bhxh_corpus_writes_files_named_by_url_slug(tmp_path, monkeypatch):
+    fake_bodies = {
+        "https://vbpl.vn/van-ban/chi-tiet/van-ban-a--uuid-1": "Noi dung van ban A",
+        "https://vbpl.vn/van-ban/chi-tiet/van-ban-b--uuid-2": "Noi dung van ban B",
+    }
+
+    def fake_fetch(url: str) -> str:
+        return fake_bodies[url]
+
+    monkeypatch.setattr(fetch_bhxh_corpus_module, "fetch_vbpl_noidung", fake_fetch)
+
+    written = fetch_bhxh_corpus(list(fake_bodies), tmp_path)
+
+    assert len(written) == 2
+    for path in written:
+        assert path.parent == tmp_path
+
+    file_a = tmp_path / "van-ban-a.txt"
+    file_b = tmp_path / "van-ban-b.txt"
+    assert written == [file_a, file_b]
+    assert file_a.read_text(encoding="utf-8") == "Noi dung van ban A"
+    assert file_b.read_text(encoding="utf-8") == "Noi dung van ban B"
+
+
+def test_fetch_bhxh_corpus_creates_out_dir_if_missing(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        fetch_bhxh_corpus_module, "fetch_vbpl_noidung", lambda url: "text"
+    )
+    nested_out_dir = tmp_path / "nested" / "bhxh"
+
+    written = fetch_bhxh_corpus(
+        ["https://vbpl.vn/van-ban/chi-tiet/mot-van-ban--uuid-3"], nested_out_dir
+    )
+
+    assert nested_out_dir.is_dir()
+    assert written == [nested_out_dir / "mot-van-ban.txt"]
+    assert written[0].read_text(encoding="utf-8") == "text"
+
+
+def test_slug_from_url_strips_trailing_uuid():
+    url = (
+        "https://vbpl.vn/van-ban/chi-tiet/"
+        "van-ban-hop-nhat-so-19-vbhn-vpqh-2026-hop-nhat-luat-bao-hiem-xa-hoi-so-41-2024-qh15"
+        "--ff9cd9e0-97aa-11f1-a50f-4bcbcb89bfc0"
+    )
+    assert (
+        _slug_from_url(url)
+        == "van-ban-hop-nhat-so-19-vbhn-vpqh-2026-hop-nhat-luat-bao-hiem-xa-hoi-so-41-2024-qh15"
+    )

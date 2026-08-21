@@ -28,13 +28,15 @@ nguon co cau truc hon.
 CACH DUNG (tren may that, can Playwright + Chromium da cai, Neo4j dang
 chay):
     python -m scripts.fetch_bhxh_corpus
-    python scripts/fetch_bhxh_corpus.py --dry-run   # chi fetch + parse, KHONG ghi Neo4j
+    python scripts/fetch_bhxh_corpus.py --dry-run              # chi fetch + parse, KHONG ghi Neo4j
+    python scripts/fetch_bhxh_corpus.py --out-dir data/raw/bhxh  # fetch + ghi .txt ra dia, KHONG ghi Neo4j
 """
 from __future__ import annotations
 
 import argparse
 import dataclasses
 import time
+from pathlib import Path
 
 from playwright.sync_api import sync_playwright
 
@@ -139,6 +141,49 @@ def fetch_vbpl_noidung(url: str) -> str:
         return _strip_page_chrome(text)
 
 
+def _slug_from_url(url: str) -> str:
+    """Rut ten file tu URL chi tiet vbpl.vn dang ".../van-ban/chi-tiet/
+    <slug>--<uuid>" (xem module docstring, muc "URL PHAI LA DANG DAY DU"):
+    lay PHAN CUOI CUNG cua duong dan (sau dau "/" cuoi), roi cat truoc dau
+    "--" DAU TIEN (phan sau la UUID, khong on dinh/khong doc duoc). Vd URL
+    trong BHXH_CORPUS_URLS ->
+    "van-ban-hop-nhat-so-19-vbhn-vpqh-2026-hop-nhat-luat-bao-hiem-xa-hoi-so-41-2024-qh15".
+    """
+    last_segment = url.rstrip("/").rsplit("/", 1)[-1]
+    return last_segment.split("--", 1)[0]
+
+
+def fetch_bhxh_corpus(urls: list[str], out_dir: str | Path) -> list[Path]:
+    """Fetch noi dung render (`fetch_vbpl_noidung`, tai su dung KHONG viet
+    lai) cho tung URL trong `urls`, ghi ra 1 file `.txt`/URL duoi `out_dir`
+    (ten file = slug URL, xem `_slug_from_url`), roi tra ve danh sach
+    `Path` da ghi (CUNG THU TU voi `urls`).
+
+    LY DO (xem task-5 brief, Step 5 - doi voi review round 1): ghi noi dung
+    da render ra dia TRUOC khi ingest cho phep parse/ingest lai OFFLINE ma
+    khong can crawl lai vbpl.vn moi lan (kha nang phuc hoi khi Neo4j/parser
+    loi giua chung, hoac khi can thu nghiem lai logic parse tren cung du
+    lieu) - cung mau hinh voi `scripts/fetch_zalo_legal_corpus.py` (ghi
+    van ban ra `<out>/*.md` truoc, ingest la buoc rieng doc lai tu dia).
+
+    `out_dir` duoc tao neu chua ton tai. Lich su giua cac lan fetch qua
+    `CRAWL_DELAY_SECONDS` (giong `main()`), CHI khi `urls` co nhieu hon 1
+    phan tu.
+    """
+    out_path = Path(out_dir)
+    out_path.mkdir(parents=True, exist_ok=True)
+
+    written: list[Path] = []
+    for i, url in enumerate(urls):
+        text = fetch_vbpl_noidung(url)
+        file_path = out_path / f"{_slug_from_url(url)}.txt"
+        file_path.write_text(text, encoding="utf-8")
+        written.append(file_path)
+        if i < len(urls) - 1:
+            time.sleep(CRAWL_DELAY_SECONDS)
+    return written
+
+
 def ingest_vbpl_doc(
     client: Neo4jClient,
     noi_dung_text: str,
@@ -193,10 +238,26 @@ def main() -> None:
         action="store_true",
         help="Chi fetch + parse (in ra doc_id/ngay_hieu_luc du kien), KHONG ghi Neo4j.",
     )
+    parser.add_argument(
+        "--out-dir",
+        default=None,
+        help=(
+            "Fetch va ghi noi dung render ra .txt duoi thu muc nay qua "
+            "fetch_bhxh_corpus() (KHONG ghi Neo4j trong lan chay nay) - de "
+            "parse/ingest lai OFFLINE sau, khong can crawl lai. Loai tru "
+            "--dry-run (uu tien --out-dir neu ca hai deu duoc truyen)."
+        ),
+    )
     args = parser.parse_args()
 
     entries = BHXH_CORPUS_URLS
     print(f"[fetch_bhxh_corpus] {len(entries)} van ban trong danh muc.")
+
+    if args.out_dir:
+        urls = [entry["url"] for entry in entries]
+        for path in fetch_bhxh_corpus(urls, args.out_dir):
+            print(f"[fetch_bhxh_corpus] saved {path}")
+        return
 
     client_cm = None if args.dry_run else Neo4jClient()
     try:
