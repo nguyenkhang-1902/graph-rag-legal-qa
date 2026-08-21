@@ -33,6 +33,35 @@ def test_document_query_sends_effective_fields():
     assert kwargs["che_do"] == ["huu_tri"]
 
 
+# --- T4: SUPERSEDES (luat moi -> luat cu) -----------------------------------
+
+
+def test_supersedes_sends_merge_query():
+    from unittest.mock import MagicMock
+
+    from app.graph_store.upsert import upsert_supersedes
+
+    client = MagicMock()
+    upsert_supersedes(client, "41_2024_luat_dieu_70", "58_2014_luat_dieu_60")
+    q = client.run.call_args.args[0]
+    kwargs = client.run.call_args.kwargs
+    assert "SUPERSEDES" in q and "MERGE" in q
+    assert kwargs["new"] == "41_2024_luat_dieu_70" and kwargs["old"] == "58_2014_luat_dieu_60"
+
+
+def test_supersedes_query_uses_only_merge_no_create():
+    # Toan bo query chi dung MERGE (khong bao gio CREATE) - dam bao idempotent
+    # theo cau truc, cung nguyen tac voi cac ham upsert_* khac trong module.
+    from unittest.mock import MagicMock
+
+    from app.graph_store.upsert import upsert_supersedes
+
+    client = MagicMock()
+    upsert_supersedes(client, "new-article", "old-article")
+    q = client.run.call_args.args[0]
+    assert "CREATE" not in q
+
+
 def test_upsert_document_without_identity_still_works_and_omits_new_params():
     # Nhanh _DOCUMENT_QUERY cu (khong truyen identity) KHONG duoc thay doi -
     # khong gui 4 param moi (se am tham xoa gia tri da ghi truoc do neu gui

@@ -231,6 +231,32 @@ def upsert_relations(
     client.run(_UPSERT_RELATION_QUERIES[relationship_type], rows=rows)
 
 
+_SUPERSEDES_QUERY = (
+    "MERGE (a:Article {article_id:$new}) "
+    "MERGE (b:Article {article_id:$old}) "
+    "MERGE (a)-[:SUPERSEDES]->(b)"
+)
+
+
+def upsert_supersedes(
+    client: Neo4jClient, new_article_id: str, old_article_id: str
+) -> None:
+    """Ghi canh SUPERSEDES (BHXH-P1-T4): Article `new_article_id` (luat moi)
+    thay the Article `old_article_id` (luat cu).
+
+    Khac voi upsert_relations (AMENDS/SUPERSEDES/CONFLICTS_WITH tu
+    relation_llm.py, T013 - source PHAI da ton tai qua MATCH), ham nay dung
+    MERGE cho CA HAI dau - khong gia dinh thu tu ingest giua van ban moi va
+    van ban cu (temporal metadata co the duoc nap truoc/sau doc lap voi
+    structure ingest, xem task-4-brief.md).
+
+    Idempotent: toan bo query chi dung MERGE (khong bao gio CREATE) - goi
+    lai nhieu lan voi cung (new_article_id, old_article_id) khong tao them
+    node/canh trung lap.
+    """
+    client.run(_SUPERSEDES_QUERY, new=new_article_id, old=old_article_id)
+
+
 def upsert_document(
     client: Neo4jClient,
     parsed: ParsedDocument,
