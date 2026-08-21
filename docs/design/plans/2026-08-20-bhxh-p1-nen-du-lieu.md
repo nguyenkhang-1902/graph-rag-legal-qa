@@ -6,7 +6,7 @@
 
 **Architecture:** Giữ nguyên engine hiện có (`app/extraction`, `app/graph_store`, `app/ingest`). Thêm một adapter parse nguồn vbpl (HTML → `ParsedDocument`) và mở rộng đường ghi Document để mang các field hiệu lực đã được engine dự trù sẵn (`ngay_hieu_luc` — xem docstring `upsert_document`). Không đụng tầng retrieval/serving ở phase này.
 
-**Tech Stack:** Python 3, Neo4j (`app/graph_store/neo4j_client.py`), pytest, requests/httpx cho crawler, BeautifulSoup/lxml cho parse HTML.
+**Tech Stack:** Python 3, Neo4j (`app/graph_store/neo4j_client.py`), pytest, **Playwright** (headless) cho crawler — vbpl.vn là Next.js RSC render bằng JS, `requests` thuần KHÔNG lấy được text (xác nhận ở Task 1, xem `tests/fixtures/bhxh/vbpl-source-notes.md`).
 
 **Spec:** [docs/design/2026-08-20-bhxh-nld-design.md](../2026-08-20-bhxh-nld-design.md)
 
@@ -63,25 +63,25 @@ git commit -m "feat(BHXH-P1-T1): fixture 2 van ban mau vbpl + ghi chu selector"
 - Create: `app/extraction/vbpl_parser.py`
 - Test: `tests/extraction/test_vbpl_parser.py`
 
-**Interfaces:**
-- Consumes: fixtures + selectors từ Task 1; `structure_parser.parse_document(text, fallback_doc_id)`, dataclass `ParsedDocument`.
-- Produces: `parse_vbpl_html(html: str) -> VbplDoc` với `VbplDoc(parsed: ParsedDocument, so: str, nam: str, ma_hieu: str, ngay_hieu_luc: str | None, ngay_het_hieu_luc: str | None)`.
+> **Cập nhật (Ruling 1):** input KHÔNG phải HTML thô. Crawler (Task 5, Playwright) trả về **text đã render** của tab "Nội dung" và text tab "Thuộc tính". Task 2 parse từ text đó, không dùng BeautifulSoup selector.
 
-- [ ] **Step 1: Viết test đỏ** — trích metadata từ fixture
+**Interfaces:**
+- Consumes: `structure_parser.parse_document(text, fallback_doc_id)`, dataclass `ParsedDocument`; fixture text `tests/fixtures/bhxh/luat-bhxh-2024-excerpt.txt`.
+- Produces: `parse_vbpl_content(noi_dung_text: str, thuoc_tinh_text: str = "") -> VbplDoc` với `VbplDoc(parsed: ParsedDocument, so: str, nam: str, ma_hieu: str, ngay_hieu_luc: str | None, ngay_het_hieu_luc: str | None)`. Ngày hiệu lực lấy từ `thuoc_tinh_text` ("Ngày có hiệu lực") HOẶC từ câu mở đầu trong `noi_dung_text` ("có hiệu lực kể từ ngày 01 tháng 7 năm 2025"); chuẩn hóa ISO `YYYY-MM-DD`; `None` nếu không có.
+
+- [ ] **Step 1: Viết test đỏ** — parse text đã render
 
 ```python
 # tests/extraction/test_vbpl_parser.py
 from pathlib import Path
-from app.extraction.vbpl_parser import parse_vbpl_html
+from app.extraction.vbpl_parser import parse_vbpl_content
 
-FIX = Path(__file__).parent.parent / "fixtures" / "bhxh" / "luat-bhxh-2024.html"
+FIX = Path(__file__).parent.parent / "fixtures" / "bhxh" / "luat-bhxh-2024-excerpt.txt"
 
-def test_extracts_effective_date_and_number():
-    doc = parse_vbpl_html(FIX.read_text(encoding="utf-8"))
-    assert doc.so == "41"
-    assert doc.nam == "2024"
-    assert doc.ngay_hieu_luc == "2025-07-01"      # ISO, không đoán nếu thiếu
-    assert doc.parsed.articles or doc.parsed.chapters  # có tách được Điều
+def test_extracts_effective_date_and_articles():
+    doc = parse_vbpl_content(FIX.read_text(encoding="utf-8"))
+    assert doc.ngay_hieu_luc == "2025-07-01"      # từ câu "có hiệu lực kể từ ngày 01 tháng 7 năm 2025"
+    assert doc.parsed.articles or doc.parsed.chapters  # tách được Điều 1, Điều 2
 ```
 
 - [ ] **Step 2: Chạy để xác nhận đỏ**
@@ -89,7 +89,7 @@ def test_extracts_effective_date_and_number():
 Run: `pytest tests/extraction/test_vbpl_parser.py -v`
 Expected: FAIL (`ModuleNotFoundError: app.extraction.vbpl_parser`)
 
-- [ ] **Step 3: Viết `vbpl_parser.py` tối thiểu** — dùng selector từ Task 1: BeautifulSoup lấy metadata, chuẩn hóa ngày về ISO `YYYY-MM-DD` (trả `None` nếu nguồn không có), lấy phần toàn văn → `parse_document()` để ra `ParsedDocument`. Trả `VbplDoc` (dataclass).
+- [ ] **Step 3: Viết `vbpl_parser.py` tối thiểu** — regex lấy `so/nam/ma_hieu` từ số hiệu (vd "41/2024/QH15"); lấy ngày hiệu lực từ `thuoc_tinh_text` hoặc câu mở đầu, đổi "ngày DD tháng MM năm YYYY" và "DD/MM/YYYY" → ISO; đưa `noi_dung_text` qua `parse_document()`. Trả `VbplDoc`.
 - [ ] **Step 4: Chạy để xanh**
 
 Run: `pytest tests/extraction/test_vbpl_parser.py -v`
@@ -116,30 +116,32 @@ git commit -m "feat(BHXH-P1-T2): parser adapter vbpl HTML -> ParsedDocument + me
 - Consumes: `Neo4jClient.run`, `DocIdentity`, `_DOCUMENT_WITH_IDENTITY_QUERY`.
 - Produces: `DocIdentity` có thêm `ngay_hieu_luc: str | None`, `ngay_het_hieu_luc: str | None`, `trang_thai: str` (`"active"`/`"superseded"`), `che_do: list[str]`; `upsert_document(...)` ghi các field này lên Document node.
 
-- [ ] **Step 1: Viết test đỏ** — ghi rồi đọc lại field hiệu lực
+> **Cập nhật (Ruling 2):** theo pattern `tests/graph_store/test_upsert.py` — **mock `Neo4jClient.run`** và assert Cypher+params GỬI ĐI (KHÔNG chạm Neo4j thật, KHÔNG có fixture `neo4j_client`).
+
+- [ ] **Step 1: Viết test đỏ** — mock, kiểm params hiệu lực được gửi
 
 ```python
 # tests/graph_store/test_temporal_upsert.py
-from app.graph_store.neo4j_client import Neo4jClient
+from unittest.mock import MagicMock
 from app.graph_store.upsert import upsert_document
 from app.extraction.doc_identity import DocIdentity
 from app.extraction.structure_parser import parse_document
 
-def test_document_stores_effective_dates(neo4j_client: Neo4jClient):
+def test_document_query_sends_effective_fields():
+    client = MagicMock()
     parsed = parse_document("Điều 1. Phạm vi.\n1. Nội dung.", fallback_doc_id="41_2024_luat")
     ident = DocIdentity(doc_id="41_2024_luat", so_hieu="41/2024/QH15", loai_vb="Luật",
                         title="Luật 41/2024/QH15", ngay_hieu_luc="2025-07-01",
                         ngay_het_hieu_luc=None, trang_thai="active", che_do=["huu_tri"])
-    upsert_document(neo4j_client, parsed, batch_id="t3", identity=ident)
-    row = neo4j_client.run(
-        "MATCH (d:Document {doc_id:$id}) RETURN d.ngay_hieu_luc AS hl, d.trang_thai AS tt, d.che_do AS cd",
-        id="41_2024_luat")[0]
-    assert row["hl"] == "2025-07-01" and row["tt"] == "active" and "huu_tri" in row["cd"]
+    upsert_document(client, parsed, batch_id="t3", identity=ident)
+    # Câu Document (call đầu tiên) phải mang params hiệu lực + query chứa field mới
+    q, kwargs = client.run.call_args_list[0].args[0], client.run.call_args_list[0].kwargs
+    assert "ngay_hieu_luc" in q and "trang_thai" in q and "che_do" in q
+    assert kwargs["ngay_hieu_luc"] == "2025-07-01" and kwargs["trang_thai"] == "active"
+    assert kwargs["che_do"] == ["huu_tri"]
 ```
 
-*(Fixture `neo4j_client` dùng Neo4j test/ephemeral — theo pattern có sẵn trong `tests/`; nếu chưa có, thêm trong conftest bằng `Neo4jClient()` + xóa `MATCH (n{doc_id:...}) DETACH DELETE` cuối test.)*
-
-- [ ] **Step 2: Chạy để xác nhận đỏ** — `pytest tests/graph_store/test_temporal_upsert.py -v` → FAIL (`DocIdentity.__init__` thiếu tham số).
+- [ ] **Step 2: Chạy để xác nhận đỏ** — `python -m pytest tests/graph_store/test_temporal_upsert.py -v` → FAIL (`DocIdentity.__init__` thiếu tham số).
 - [ ] **Step 3:** Thêm 4 field mới vào `DocIdentity` (mặc định: `ngay_hieu_luc=None, ngay_het_hieu_luc=None, trang_thai="active", che_do=()`), giữ `build_doc_identity` tương thích ngược. Cập nhật `_DOCUMENT_WITH_IDENTITY_QUERY` set thêm `d.ngay_hieu_luc`, `d.ngay_het_hieu_luc`, `d.trang_thai`, `d.che_do` từ params; truyền các param này trong nhánh `identity is not None` của `upsert_document`.
 - [ ] **Step 4: Chạy để xanh** — `pytest tests/graph_store/test_temporal_upsert.py -v` → PASS.
 - [ ] **Step 5:** Thêm test hồi quy: gọi `upsert_document` KHÔNG truyền `identity` vẫn chạy (nhánh `_DOCUMENT_QUERY` cũ không đổi). Chạy xanh.
@@ -161,23 +163,23 @@ git commit -m "feat(BHXH-P1-T3): Document node mang metadata hieu luc + che do"
 **Interfaces:**
 - Produces: `upsert_supersedes(client, new_article_id: str, old_article_id: str) -> None` — tạo `(new)-[:SUPERSEDES]->(old)` bằng MERGE.
 
-- [ ] **Step 1: Viết test đỏ**
+- [ ] **Step 1: Viết test đỏ** (mock pattern — Ruling 2)
 
 ```python
-def test_supersedes_edge(neo4j_client):
+def test_supersedes_sends_merge_query():
+    from unittest.mock import MagicMock
     from app.graph_store.upsert import upsert_supersedes
-    neo4j_client.run("MERGE (:Article {article_id:'41_2024_luat_dieu_70'})")
-    neo4j_client.run("MERGE (:Article {article_id:'58_2014_luat_dieu_60'})")
-    upsert_supersedes(neo4j_client, "41_2024_luat_dieu_70", "58_2014_luat_dieu_60")
-    n = neo4j_client.run(
-        "MATCH (:Article {article_id:'41_2024_luat_dieu_70'})-[:SUPERSEDES]->"
-        "(:Article {article_id:'58_2014_luat_dieu_60'}) RETURN count(*) AS c")[0]["c"]
-    assert n == 1
+    client = MagicMock()
+    upsert_supersedes(client, "41_2024_luat_dieu_70", "58_2014_luat_dieu_60")
+    q = client.run.call_args.args[0]
+    kwargs = client.run.call_args.kwargs
+    assert "SUPERSEDES" in q and "MERGE" in q
+    assert kwargs["new"] == "41_2024_luat_dieu_70" and kwargs["old"] == "58_2014_luat_dieu_60"
 ```
 
 - [ ] **Step 2: Chạy đỏ** → FAIL (`ImportError upsert_supersedes`).
-- [ ] **Step 3:** Viết `upsert_supersedes` dùng `MERGE (a:Article {article_id:$new}) MERGE (b:Article {article_id:$old}) MERGE (a)-[:SUPERSEDES]->(b)`.
-- [ ] **Step 4: Chạy xanh.** Thêm test gọi 2 lần không tạo cạnh trùng (idempotent).
+- [ ] **Step 3:** Viết `upsert_supersedes` gọi `client.run(q, new=new_article_id, old=old_article_id)` với `q = "MERGE (a:Article {article_id:$new}) MERGE (b:Article {article_id:$old}) MERGE (a)-[:SUPERSEDES]->(b)"`.
+- [ ] **Step 4: Chạy xanh.** Thêm test: query dùng toàn MERGE (không CREATE) ⇒ idempotent theo cấu trúc.
 - [ ] **Step 5: Commit**
 
 ```bash
