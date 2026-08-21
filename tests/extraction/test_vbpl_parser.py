@@ -63,6 +63,25 @@ def test_thuoc_tinh_text_with_real_het_hieu_luc_date():
     assert doc.ngay_het_hieu_luc == "2030-12-31"
 
 
+def test_ngay_hieu_luc_absent_does_not_borrow_next_label_date():
+    # "Ngay co hieu luc" la "--" (rong/khong co) nhung nhan KE TIEP ("Ngay
+    # het hieu luc") co ngay that ngay sau do trong cua so ky tu quet -
+    # PHAI tra None cho ngay_hieu_luc, KHONG duoc "muon" nham ngay cua
+    # nhan khac (bug review round 1: cua so 60 ky tu co the tran qua nhan
+    # ke tiep va doan bua sai truong). Dung noi_dung_text KHONG chua cum
+    # "hieu luc" nao de co lap dung loi trong _extract_labeled_date, tranh
+    # nham lan voi hanh vi fallback sang cau mo dau (da co test rieng o
+    # test_thuoc_tinh_text_takes_priority_over_noi_dung_opening_sentence).
+    noi_dung_khong_co_ngay = "# Van ban test\n\nĐiều 1. Tieu de\nNoi dung khong nhac ngay thang gi ca.\n"
+    thuoc_tinh = (
+        "Ngày có hiệu lực: --\n"
+        "Ngày hết hiệu lực: 31/12/2030\n"
+    )
+    doc = parse_vbpl_content(noi_dung_khong_co_ngay, thuoc_tinh_text=thuoc_tinh)
+    assert doc.ngay_hieu_luc is None
+    assert doc.ngay_het_hieu_luc == "2030-12-31"
+
+
 def test_thuoc_tinh_text_takes_priority_over_noi_dung_opening_sentence():
     # thuoc_tinh_text co ngay khac voi cau mo dau trong noi_dung_text ->
     # uu tien thuoc_tinh_text (brief: "HOAC", thuoc_tinh truoc).

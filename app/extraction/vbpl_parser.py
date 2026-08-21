@@ -43,10 +43,30 @@ _NGAY_HIEU_LUC_LABEL = "Ngày có hiệu lực"
 _NGAY_HET_HIEU_LUC_LABEL = "Ngày hết hiệu lực"
 _HIEU_LUC_ANCHOR_RE = re.compile(r"hi[ệe]u\s+l[ựu]c", re.IGNORECASE)
 
+# Cac nhan metadata KHAC co the xuat hien tren bang "Thuoc tinh"
+# (vbpl-source-notes.md) - dung de CHAN cua so quet cua mot nhan lai
+# gia tri cua nhan KE TIEP. Khong day du 100% (dinh dang that chua duoc
+# xac minh - xem module docstring) nhung it nhat 2 nhan ngay (chinh no
+# quan tam) luon nam trong danh sach nay nen khong the tran vao nhau.
+_KNOWN_METADATA_LABELS = (
+    "Số hiệu",
+    "Loại văn bản",
+    "Ngày ký xác thực",
+    _NGAY_HIEU_LUC_LABEL,
+    _NGAY_HET_HIEU_LUC_LABEL,
+    "Cơ quan ban hành",
+    "Người ký",
+    "Ngành",
+    "Lĩnh vực",
+)
+
 # Cua so ky tu quet sau mot nhan/anchor de tim ngay - du dai cho "ngay DD
 # thang MM nam YYYY" hoac "DD/MM/YYYY" nam tren cung dong hoac dong ke tiep
-# (bang thuoc tinh render dang "Nhan\nGia tri"), nhung khong qua dai de
-# tranh vo tinh khop ngay cua nhan KHAC o gan do.
+# (bang thuoc tinh render dang "Nhan\nGia tri"). Day CHI la GIOI HAN TRAN
+# (an toan khi khong co nhan nao khac o gan) - _extract_labeled_date con
+# chan som hon o vi tri nhan KE TIEP neu tim thay, de khong bao gio doc
+# nham gia tri cua truong khac (xem review round 1: cua so co dinh tung
+# tran qua nhan ke tiep va lam "muon" nham ngay).
 _LABEL_WINDOW = 60
 
 
@@ -82,16 +102,30 @@ def _normalize_date(text: str) -> str | None:
 
 def _extract_labeled_date(text: str, label: str) -> str | None:
     """Tim `label` (vd "Ngay co hieu luc") trong `text`, roi chuan hoa ngay
-    trong mot cua so ky tu ngay sau do (_LABEL_WINDOW). Dung cho
-    `thuoc_tinh_text` dang bang nhan->gia tri; dinh dang render cu the
-    chua duoc xac minh nen chi dua vao khoang cach ky tu, khong dua vao
-    dau phan cach co dinh (":" / tab / xuong dong)."""
+    trong PHAN GIUA `label` do va NHAN KE TIEP (bat ky nhan nao khac trong
+    _KNOWN_METADATA_LABELS xuat hien sau no), gioi han tran boi
+    _LABEL_WINDOW. Chan cung o vi tri nhan ke tiep la BAT BUOC: neu khong,
+    gia tri rong/"--" cua `label` co the "muon" nham ngay cua truong KHAC
+    nam ngay sau no trong text (xem review round 1 - day chinh la loi da
+    sua, KHONG doan bua gia tri cho mot truong dang thieu).
+
+    Dung cho `thuoc_tinh_text` dang bang nhan->gia tri; dinh dang render
+    cu the chua duoc xac minh nen chi dua vao khoang cach ky tu, khong
+    dua vao dau phan cach co dinh (":" / tab / xuong dong)."""
     if not text:
         return None
     idx = text.find(label)
     if idx == -1:
         return None
-    window = text[idx + len(label) : idx + len(label) + _LABEL_WINDOW]
+    start = idx + len(label)
+    end = start + _LABEL_WINDOW
+    for other_label in _KNOWN_METADATA_LABELS:
+        if other_label == label:
+            continue
+        other_idx = text.find(other_label, start)
+        if other_idx != -1:
+            end = min(end, other_idx)
+    window = text[start:end]
     return _normalize_date(window)
 
 
