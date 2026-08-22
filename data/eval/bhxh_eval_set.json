@@ -1,0 +1,23 @@
+{
+  "_note": "Bo eval retrieval BHXH (P2-T3). gold_article_ids XAC MINH tu tieu de Dieu (noi_dung_preview) trong Neo4j - KHONG doan. hit@k = it nhat 1 gold nam trong top-k truy xuat.",
+  "questions": [
+    {"question": "Điều kiện hưởng bảo hiểm xã hội một lần là gì?", "gold_article_ids": ["41-2024-qh15_dieu-70"], "che_do": "mot_lan"},
+    {"question": "Mức lương hưu hằng tháng được tính như thế nào?", "gold_article_ids": ["41-2024-qh15_dieu-66"], "che_do": "huu_tri"},
+    {"question": "Điều kiện hưởng lương hưu là gì?", "gold_article_ids": ["41-2024-qh15_dieu-64"], "che_do": "huu_tri"},
+    {"question": "Điều kiện hưởng lương hưu khi bị suy giảm khả năng lao động?", "gold_article_ids": ["41-2024-qh15_dieu-65"], "che_do": "huu_tri"},
+    {"question": "Trợ cấp một lần khi nghỉ hưu được tính thế nào?", "gold_article_ids": ["41-2024-qh15_dieu-68"], "che_do": "huu_tri"},
+    {"question": "Lao động nữ được nghỉ việc hưởng chế độ thai sản khi sinh con bao lâu?", "gold_article_ids": ["41-2024-qh15_dieu-53", "45-2019-qh14_dieu-139"], "che_do": "thai_san"},
+    {"question": "Nghỉ thai sản theo Bộ luật Lao động là bao nhiêu tháng?", "gold_article_ids": ["45-2019-qh14_dieu-139"], "che_do": "thai_san"},
+    {"question": "Được nghỉ đi khám thai mấy lần?", "gold_article_ids": ["41-2024-qh15_dieu-51"], "che_do": "thai_san"},
+    {"question": "Chế độ khi sảy thai, nạo hút thai được nghỉ bao lâu?", "gold_article_ids": ["41-2024-qh15_dieu-52"], "che_do": "thai_san"},
+    {"question": "Trợ cấp một lần khi sinh con là bao nhiêu?", "gold_article_ids": ["41-2024-qh15_dieu-58"], "che_do": "thai_san"},
+    {"question": "Dưỡng sức phục hồi sức khoẻ sau thai sản được nghỉ mấy ngày?", "gold_article_ids": ["41-2024-qh15_dieu-60"], "che_do": "thai_san"},
+    {"question": "Đối tượng và điều kiện hưởng chế độ ốm đau?", "gold_article_ids": ["41-2024-qh15_dieu-42"], "che_do": "om_dau"},
+    {"question": "Thời gian nghỉ hưởng chế độ ốm đau tối đa bao nhiêu ngày?", "gold_article_ids": ["41-2024-qh15_dieu-43"], "che_do": "om_dau"},
+    {"question": "Nghỉ chăm sóc con ốm được bao nhiêu ngày?", "gold_article_ids": ["41-2024-qh15_dieu-44"], "che_do": "om_dau"},
+    {"question": "Dưỡng sức phục hồi sức khoẻ sau khi ốm đau?", "gold_article_ids": ["41-2024-qh15_dieu-46"], "che_do": "om_dau"},
+    {"question": "Điều kiện hưởng trợ cấp thất nghiệp là gì?", "gold_article_ids": ["38-2013-qh13_dieu-49"], "che_do": "that_nghiep"},
+    {"question": "Mức và thời gian hưởng trợ cấp thất nghiệp?", "gold_article_ids": ["38-2013-qh13_dieu-50"], "che_do": "that_nghiep"},
+    {"question": "Ai bắt buộc tham gia bảo hiểm thất nghiệp?", "gold_article_ids": ["38-2013-qh13_dieu-43"], "che_do": "that_nghiep"}
+  ]
+}
