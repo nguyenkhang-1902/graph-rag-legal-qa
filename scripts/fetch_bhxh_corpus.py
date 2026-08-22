@@ -114,6 +114,31 @@ BHXH_CORPUS_URLS: list[dict] = [
         "url": _B + "luat-bao-hiem-y-te-so-25-2008-qh12--12326",
         "che_do": ["y_te"],  # Luat BHYT (lien quan)
     },
+    # --- Mo rong dot 2 (2026-08-22): van ban hien hanh bo sung ---
+    {
+        "url": _B + "luat-bao-hiem-y-te-sua-doi-2024-so-luat-so-51-2024-qh15--172923",
+        "che_do": ["y_te"],  # Luat BHYT sua doi 2024
+    },
+    {
+        "url": _B + "nghi-dinh-so-88-2020-nd-cp-quy-dinh-chi-tiet-va-huong-dan-thi-hanh-mot-so-dieu-cua-luat-an-toan-ve-sinh-lao-dong-ve-bao-hiem-tai-nan-lao-dong-benh-nghe-nghiep-bat-buoc--143470",
+        "che_do": ["tai_nan_lao_dong"],  # ND 88/2020 BH TNLD-BNN
+    },
+    {
+        "url": _B + "nghi-dinh-so-75-2024-nd-cp-dieu-chinh-luong-huu-tro-cap-bao-hiem-xa-hoi-va-tro-cap-hang-thang--168671",
+        "che_do": ["huu_tri"],  # ND 75/2024 dieu chinh luong huu
+    },
+    {
+        "url": _B + "nghi-dinh-so-76-2024-nd-cp-sua-doi-bo-sung-mot-so-dieu-cua-nghi-dinh-so-20-2021-nd-cp-ngay-15-thang-3-nam-2021-cua-chinh-phu-quy-dinh-chinh-sach-tro-giup-xa-hoi-doi-voi-doi-tuong-bao-tro-xa-hoi--173641",
+        "che_do": ["huu_tri"],  # ND 76/2024 tro giup xa hoi (huu tri xa hoi)
+    },
+    {
+        "url": _B + "thong-tu-so-20-2023-tt-bldtbxh-quy-dinh-muc-dieu-chinh-tien-luong-va-thu-nhap-thang-da-dong-bao-hiem-xa-hoi--167036",
+        "che_do": ["huu_tri", "mot_lan"],  # TT 20/2023 dieu chinh tien luong dong BHXH
+    },
+    {
+        "url": _B + "nghi-dinh-so-12-2022-nd-cp-quy-dinh-xu-phat-vi-pham-hanh-chinh-trong-linh-vuc-lao-dong-bao-hiem-xa-hoi-nguoi-lao-dong-viet-nam-di-lam-viec-o-nuoc-ngoai-theo-hop-dong--153913",
+        "che_do": ["xu_phat"],  # ND 12/2022 xu phat VPHC lao dong BHXH
+    },
 ]
 
 # Khoang cach lich su giua 2 lan fetch khi corpus co nhieu hon 1 van ban -
