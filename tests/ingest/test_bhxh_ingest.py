@@ -143,32 +143,34 @@ def test_strip_page_chrome_returns_input_unchanged_when_marker_absent():
 
 
 def test_fetch_bhxh_corpus_writes_files_named_by_url_slug(tmp_path, monkeypatch):
-    fake_bodies = {
-        "https://vbpl.vn/van-ban/chi-tiet/van-ban-a--uuid-1": "Noi dung van ban A",
-        "https://vbpl.vn/van-ban/chi-tiet/van-ban-b--uuid-2": "Noi dung van ban B",
+    # fetch_vbpl_document tra (noi_dung, thuoc_tinh); fetch_bhxh_corpus ghi
+    # ca `<slug>.txt` (noi dung) LAN `<slug>.tt.txt` (thuoc tinh - can cho
+    # embed/parse lai offline lay dung so hieu).
+    fake_docs = {
+        "https://vbpl.vn/van-ban/chi-tiet/van-ban-a--uuid-1": ("Noi dung A", "Thuoc tinh A"),
+        "https://vbpl.vn/van-ban/chi-tiet/van-ban-b--uuid-2": ("Noi dung B", "Thuoc tinh B"),
     }
 
-    def fake_fetch(url: str) -> str:
-        return fake_bodies[url]
+    monkeypatch.setattr(
+        fetch_bhxh_corpus_module, "fetch_vbpl_document", lambda url: fake_docs[url]
+    )
 
-    monkeypatch.setattr(fetch_bhxh_corpus_module, "fetch_vbpl_noidung", fake_fetch)
-
-    written = fetch_bhxh_corpus(list(fake_bodies), tmp_path)
+    written = fetch_bhxh_corpus(list(fake_docs), tmp_path)
 
     assert len(written) == 2
-    for path in written:
-        assert path.parent == tmp_path
-
     file_a = tmp_path / "van-ban-a.txt"
     file_b = tmp_path / "van-ban-b.txt"
     assert written == [file_a, file_b]
-    assert file_a.read_text(encoding="utf-8") == "Noi dung van ban A"
-    assert file_b.read_text(encoding="utf-8") == "Noi dung van ban B"
+    assert file_a.read_text(encoding="utf-8") == "Noi dung A"
+    assert file_b.read_text(encoding="utf-8") == "Noi dung B"
+    # sidecar thuoc_tinh
+    assert (tmp_path / "van-ban-a.tt.txt").read_text(encoding="utf-8") == "Thuoc tinh A"
+    assert (tmp_path / "van-ban-b.tt.txt").read_text(encoding="utf-8") == "Thuoc tinh B"
 
 
 def test_fetch_bhxh_corpus_creates_out_dir_if_missing(tmp_path, monkeypatch):
     monkeypatch.setattr(
-        fetch_bhxh_corpus_module, "fetch_vbpl_noidung", lambda url: "text"
+        fetch_bhxh_corpus_module, "fetch_vbpl_document", lambda url: ("text", "tt")
     )
     nested_out_dir = tmp_path / "nested" / "bhxh"
 
@@ -179,6 +181,7 @@ def test_fetch_bhxh_corpus_creates_out_dir_if_missing(tmp_path, monkeypatch):
     assert nested_out_dir.is_dir()
     assert written == [nested_out_dir / "mot-van-ban.txt"]
     assert written[0].read_text(encoding="utf-8") == "text"
+    assert (nested_out_dir / "mot-van-ban.tt.txt").read_text(encoding="utf-8") == "tt"
 
 
 def test_slug_from_url_strips_trailing_uuid():

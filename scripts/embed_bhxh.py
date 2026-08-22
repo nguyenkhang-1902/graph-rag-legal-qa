@@ -45,26 +45,37 @@ def embed_bhxh_txt(paths: list[Path]) -> int:
     dung, tranh drift), roi upsert MOT LAN (khong phai N loi goi rieng le)
     vao Chroma qua `embedder.upsert_embeddings`. Article co `full_text` rong
     bi bo qua (khong co gi de embed). Tra ve tong so vector da upsert."""
-    ids: list[str] = []
-    texts: list[str] = []
-    metadatas: list[dict] = []
+    # Dedupe theo article_id (dict giu ban cuoi) - PHAI parse KEM thuoc_tinh
+    # sidecar (`<slug>.tt.txt`): parse chi tu noi dung body lay so hieu tu van
+    # ban DUOC DAN CHIEU o preamble -> doc_id/article_id SAI + trung (vd nhieu
+    # van ban cung dan Luat BHXH 2014 -> deu ra "58-2014-QH13_dieu-N"). Chroma
+    # upsert khong chap nhan id trung -> phai dung thuoc_tinh cho dung id khop
+    # Neo4j (xem fetch_bhxh_corpus.fetch_vbpl_document / ingest_vbpl_doc).
+    by_id: dict[str, tuple[str, dict]] = {}
 
     for path in paths:
-        text = Path(path).read_text(encoding="utf-8")
-        doc = parse_vbpl_content(text)
+        path = Path(path)
+        text = path.read_text(encoding="utf-8")
+        tt_path = path.with_name(path.name[: -len(".txt")] + ".tt.txt")
+        thuoc_tinh = tt_path.read_text(encoding="utf-8") if tt_path.exists() else ""
+        doc = parse_vbpl_content(text, thuoc_tinh)
         parsed = doc.parsed
 
         for article in _all_articles(parsed):
             if not article.full_text.strip():
                 continue
-            ids.append(article.article_id)
-            texts.append(article.full_text)
-            metadatas.append({"doc_id": parsed.doc_id, "so_dieu": article.so_dieu})
+            by_id[article.article_id] = (
+                article.full_text,
+                {"doc_id": parsed.doc_id, "so_dieu": article.so_dieu},
+            )
 
-    if not ids:
+    if not by_id:
         logger.info("khong co Article nao de embed (0 file hoac toan bo rong)")
         return 0
 
+    ids = list(by_id.keys())
+    texts = [by_id[i][0] for i in ids]
+    metadatas = [by_id[i][1] for i in ids]
     embedder.upsert_embeddings(ids=ids, texts=texts, metadatas=metadatas)
     return len(ids)
 
@@ -73,7 +84,11 @@ def main() -> None:
     logging.basicConfig(
         level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s"
     )
-    paths = sorted(_BHXH_RAW_DIR.glob("*.txt"))
+    # Bo qua sidecar thuoc_tinh (`*.tt.txt`) - chung duoc doc kem theo file
+    # noi dung tuong ung ben trong embed_bhxh_txt, khong phai file dau vao rieng.
+    paths = sorted(
+        p for p in _BHXH_RAW_DIR.glob("*.txt") if not p.name.endswith(".tt.txt")
+    )
     logger.info("tim thay %d file trong %s", len(paths), _BHXH_RAW_DIR)
     count = embed_bhxh_txt(paths)
     print(f"Da embed {count} Dieu vao Chroma tu {len(paths)} file.")

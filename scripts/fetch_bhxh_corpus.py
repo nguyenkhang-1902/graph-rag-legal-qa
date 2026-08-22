@@ -249,9 +249,13 @@ def fetch_bhxh_corpus(urls: list[str], out_dir: str | Path) -> list[Path]:
     written: list[Path] = []
     for i, url in enumerate(urls):
         try:
-            text = fetch_vbpl_noidung(url)
-            file_path = out_path / f"{_slug_from_url(url)}.txt"
-            file_path.write_text(text, encoding="utf-8")
+            noi_dung, thuoc_tinh = fetch_vbpl_document(url)
+            slug = _slug_from_url(url)
+            file_path = out_path / f"{slug}.txt"
+            file_path.write_text(noi_dung, encoding="utf-8")
+            # Sidecar thuoc_tinh: CAN cho embed/parse lai offline lay DUNG so
+            # hieu (parse tu noi dung body -> so hieu van ban DUOC DAN CHIEU).
+            (out_path / f"{slug}.tt.txt").write_text(thuoc_tinh, encoding="utf-8")
             written.append(file_path)
         except Exception as exc:  # bo qua doc loi, chay tiep
             print(f"[fetch_bhxh_corpus] !! LOI luu {url}: {type(exc).__name__}: {exc}")
