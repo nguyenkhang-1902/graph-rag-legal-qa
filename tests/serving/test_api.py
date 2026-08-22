@@ -266,6 +266,8 @@ def test_call_ollama_posts_to_generate_endpoint_and_parses_response_field(monkey
     monkeypatch.setattr(api.httpx, "post", mock_post)
     monkeypatch.setattr(api.config, "OLLAMA_BASE_URL", "http://localhost:11434")
     monkeypatch.setattr(api.config, "OLLAMA_MODEL", "qwen2.5:7b-instruct")
+    monkeypatch.setattr(api.config, "OLLAMA_NUM_CTX", 8192)
+    monkeypatch.setattr(api.config, "OLLAMA_TEMPERATURE", 0.2)
 
     result = api._call_ollama("mot prompt test")
 
@@ -276,6 +278,7 @@ def test_call_ollama_posts_to_generate_endpoint_and_parses_response_field(monkey
             "model": "qwen2.5:7b-instruct",
             "prompt": "mot prompt test",
             "stream": False,
+            "options": {"num_ctx": 8192, "temperature": 0.2},
         },
         timeout=api._OLLAMA_TIMEOUT_SECONDS,
     )

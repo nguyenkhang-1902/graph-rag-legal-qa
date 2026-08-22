@@ -196,16 +196,21 @@ def _build_prompt(
     context_text = "\n\n".join(blocks) if blocks else "(không có ngữ cảnh)"
 
     return (
-        "Bạn là trợ lý hỏi-đáp pháp luật. CHỈ được trả lời dựa trên phần "
-        "NGỮ CẢNH dưới đây - không được bịa thêm bất kỳ nội dung pháp luật "
-        "nào không có trong đó. Với mỗi ý trong câu trả lời, hãy nêu rõ "
-        "đang dựa vào Điều/article_id nào để người đọc có thể kiểm chứng. "
-        "Nếu một Điều được nhắc tới nhưng NGỮ CẢNH ghi rõ không có nội dung "
-        "(nằm ngoài dữ liệu đã ingest, hoặc chỉ có preview rút gọn), hãy "
-        "nói rõ điều đó thay vì suy đoán hay bịa nội dung của Điều đó.\n\n"
+        "Bạn là trợ lý pháp luật về bảo hiểm xã hội, trả lời cho NGƯỜI LAO "
+        "ĐỘNG phổ thông. Quy tắc BẮT BUỘC:\n"
+        "1. Trả lời TRỰC TIẾP và ĐÚNG TRỌNG TÂM câu hỏi, ngắn gọn, dễ hiểu, "
+        "không thuật ngữ rườm rà. KHÔNG liệt kê thông tin ngoài phạm vi câu "
+        "hỏi dù NGỮ CẢNH có chứa.\n"
+        "2. CHỈ dùng nội dung trong NGỮ CẢNH dưới đây - KHÔNG bịa, KHÔNG dùng "
+        "kiến thức ngoài. Nếu NGỮ CẢNH không đủ để trả lời, nói thẳng: "
+        "\"Chưa tìm thấy quy định cụ thể trong dữ liệu\" - KHÔNG suy đoán.\n"
+        "3. Mỗi ý PHẢI kèm trích dẫn Điều/article_id lấy từ NGỮ CẢNH (ví dụ "
+        "\"(Điều 70, 41-2024-qh15)\") để người đọc kiểm chứng.\n"
+        "4. Điều nào NGỮ CẢNH ghi là ngoài dữ liệu / chỉ có preview thì nói "
+        "rõ, không bịa nội dung của nó.\n\n"
         f"CÂU HỎI: {question}\n\n"
         f"NGỮ CẢNH:\n{context_text}\n\n"
-        "TRẢ LỜI:"
+        "TRẢ LỜI (ngắn gọn, đúng trọng tâm, có trích dẫn):"
     )
 
 
@@ -220,6 +225,10 @@ def _call_ollama(prompt: str) -> str:
             "model": config.OLLAMA_MODEL,
             "prompt": prompt,
             "stream": False,
+            "options": {
+                "num_ctx": config.OLLAMA_NUM_CTX,
+                "temperature": config.OLLAMA_TEMPERATURE,
+            },
         },
         timeout=_OLLAMA_TIMEOUT_SECONDS,
     )

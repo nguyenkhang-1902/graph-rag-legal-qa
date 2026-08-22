@@ -46,6 +46,12 @@ NEO4J_PASSWORD: str = os.getenv("NEO4J_PASSWORD", "changeme")
 # --- Ollama (LLM local, constitution "Nền tảng & hạ tầng") ---
 OLLAMA_BASE_URL: str = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 OLLAMA_MODEL: str = os.getenv("OLLAMA_MODEL", "qwen2.5:7b-instruct")
+# num_ctx: cua so ngu canh Ollama. Mac dinh qwen2.5 chi 2048/4096 -> 10 Dieu
+# luat (co Dieu dai) VUOT -> ngu canh bi CAT AM THAM -> LLM tra loi lech/lan
+# (vd nham "Luat 2014"). Dat 8192 de chua du ngu canh + prompt. temperature
+# thap de tra loi bam ngu canh, it bia (P3).
+OLLAMA_NUM_CTX: int = int(os.getenv("OLLAMA_NUM_CTX", "8192"))
+OLLAMA_TEMPERATURE: float = float(os.getenv("OLLAMA_TEMPERATURE", "0.2"))
 
 # --- Chroma (vector store, chỉ dùng tìm entry-point — data-model.md) ---
 CHROMA_PERSIST_DIR: str = os.getenv("CHROMA_PERSIST_DIR", "./chroma_db")
