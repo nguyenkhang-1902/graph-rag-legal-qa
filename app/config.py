@@ -53,6 +53,20 @@ OLLAMA_MODEL: str = os.getenv("OLLAMA_MODEL", "qwen2.5:7b-instruct")
 OLLAMA_NUM_CTX: int = int(os.getenv("OLLAMA_NUM_CTX", "8192"))
 OLLAMA_TEMPERATURE: float = float(os.getenv("OLLAMA_TEMPERATURE", "0.2"))
 
+# --- Reranker (cross-encoder, P3) ---
+# Sau entry-point (dense) + traversal, cham diem lai ung vien theo query bang
+# cross-encoder -> Dieu dung trong tam len dau truoc khi cat MAX_CONTEXT_ARTICLES
+# (giai quyet Q bam Dieu phu). Model DA cache offline.
+RERANK_ENABLED: bool = os.getenv("RERANK_ENABLED", "true").lower() == "true"
+RERANKER_MODEL: str = os.getenv("RERANKER_MODEL", "BAAI/bge-reranker-v2-m3")
+# CPU: GPU 8GB da co bge-m3 (embedder) + qwen-7b (Ollama) -> reranker GPU se
+# OOM. CPU cham hon (~vai giay/cau) nhung an toan.
+RERANKER_DEVICE: str = os.getenv("RERANKER_DEVICE", "cpu")
+RERANKER_MAX_LENGTH: int = int(os.getenv("RERANKER_MAX_LENGTH", "1024"))
+# So ung vien fetch de rerank (rong hon MAX_CONTEXT_ARTICLES de reranker co
+# du lua chon truoc khi cat).
+RERANK_FETCH_K: int = int(os.getenv("RERANK_FETCH_K", "15"))
+
 # --- Chroma (vector store, chỉ dùng tìm entry-point — data-model.md) ---
 CHROMA_PERSIST_DIR: str = os.getenv("CHROMA_PERSIST_DIR", "./chroma_db")
 CHROMA_COLLECTION_NAME: str = os.getenv("CHROMA_COLLECTION_NAME", "legal_articles")

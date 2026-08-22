@@ -37,6 +37,7 @@ from app.graph_store.neo4j_client import Neo4jClient
 from app.retrieval import embedder
 from app.retrieval.entry_point import find_entry_points
 from app.retrieval.ranking import rank_article_ids
+from app.retrieval.reranker import rerank_ids
 from app.retrieval.traversal import traverse
 
 logger = logging.getLogger(__name__)
@@ -245,7 +246,10 @@ def chat(request: ChatRequest) -> dict:
     Khong co entry point nao tim duoc -> tra ve som (HTTP 200, answer giai
     thich) - `traverse`/`_call_ollama`/Neo4jClient KHONG duoc goi (khong co
     gi de traverse/tra loi tu)."""
-    entry_points = find_entry_points(request.question)
+    # Khi rerank: fetch RONG hon (RERANK_FETCH_K) de cross-encoder co du ung
+    # vien cham diem lai truoc khi cat MAX_CONTEXT_ARTICLES.
+    _entry_top_k = config.RERANK_FETCH_K if config.RERANK_ENABLED else 5
+    entry_points = find_entry_points(request.question, top_k=_entry_top_k)
     if not entry_points:
         return {
             "answer": _NOT_FOUND_ANSWER,
@@ -267,10 +271,23 @@ def chat(request: ChatRequest) -> dict:
         # gi ve recall ma giam 41% ngu canh dua cho LLM.
         # Cat theo THU TU XEP HANG, khong theo chu cai: entry point (co diem
         # similarity that) truoc, roi Article traversal theo thu tu xuat hien.
-        ranked_ids = rank_article_ids(
-            ranked_entry_ids, traversal_result, limit=config.MAX_CONTEXT_ARTICLES
+        # Khi rerank: lay pool rong (RERANK_FETCH_K) roi cross-encoder cham
+        # diem lai -> cat MAX_CONTEXT_ARTICLES; nguoc lai cat thang nhu cu.
+        _pool_limit = (
+            config.RERANK_FETCH_K
+            if config.RERANK_ENABLED
+            else config.MAX_CONTEXT_ARTICLES
         )
-        texts = embedder.get_texts(ranked_ids)
+        ranked_pool = rank_article_ids(
+            ranked_entry_ids, traversal_result, limit=_pool_limit
+        )
+        texts = embedder.get_texts(ranked_pool)
+        if config.RERANK_ENABLED:
+            ranked_ids = rerank_ids(
+                request.question, ranked_pool, texts, config.MAX_CONTEXT_ARTICLES
+            )
+        else:
+            ranked_ids = ranked_pool
         contexts = _classify_articles(client, set(ranked_ids), texts)
 
     prompt = _build_prompt(request.question, contexts, ranked_ids)

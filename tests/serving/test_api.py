@@ -69,6 +69,9 @@ def test_no_entry_points_returns_graceful_answer_without_traversal_or_ollama(
     monkeypatch.setattr(api, "traverse", mock_traverse)
     mock_call_ollama = MagicMock()
     monkeypatch.setattr(api, "_call_ollama", mock_call_ollama)
+    # Cac test nay kiem tra luong KHONG rerank (mock find_entry_points/get_texts
+    # co dinh); tat rerank de khong tai cross-encoder that. Rerank co test rieng.
+    monkeypatch.setattr(api.config, "RERANK_ENABLED", False)
     mock_neo4j_cls = MagicMock()
     monkeypatch.setattr(api, "Neo4jClient", mock_neo4j_cls)
 
@@ -117,6 +120,9 @@ def test_normal_case_all_embedded_builds_context_and_returns_citation_path(
     monkeypatch.setattr(api, "Neo4jClient", lambda *a, **kw: fake_client)
     mock_call_ollama = MagicMock(return_value="cau tra loi mo phong")
     monkeypatch.setattr(api, "_call_ollama", mock_call_ollama)
+    # Cac test nay kiem tra luong KHONG rerank (mock find_entry_points/get_texts
+    # co dinh); tat rerank de khong tai cross-encoder that. Rerank co test rieng.
+    monkeypatch.setattr(api.config, "RERANK_ENABLED", False)
 
     response = test_client.post("/chat", json={"question": "nghi phep nam the nao?"})
 
@@ -177,6 +183,9 @@ def test_external_article_content_not_sent_to_llm_and_marked_in_citation_path(
     monkeypatch.setattr(api, "Neo4jClient", lambda *a, **kw: fake_client)
     mock_call_ollama = MagicMock(return_value="cau tra loi mo phong")
     monkeypatch.setattr(api, "_call_ollama", mock_call_ollama)
+    # Cac test nay kiem tra luong KHONG rerank (mock find_entry_points/get_texts
+    # co dinh); tat rerank de khong tai cross-encoder that. Rerank co test rieng.
+    monkeypatch.setattr(api.config, "RERANK_ENABLED", False)
 
     response = test_client.post("/chat", json={"question": "cau hoi"})
 
@@ -233,6 +242,9 @@ def test_not_yet_embedded_article_falls_back_to_neo4j_preview(monkeypatch, test_
     monkeypatch.setattr(api, "Neo4jClient", lambda *a, **kw: fake_client)
     mock_call_ollama = MagicMock(return_value="cau tra loi mo phong")
     monkeypatch.setattr(api, "_call_ollama", mock_call_ollama)
+    # Cac test nay kiem tra luong KHONG rerank (mock find_entry_points/get_texts
+    # co dinh); tat rerank de khong tai cross-encoder that. Rerank co test rieng.
+    monkeypatch.setattr(api.config, "RERANK_ENABLED", False)
 
     response = test_client.post("/chat", json={"question": "cau hoi"})
 
@@ -377,3 +389,43 @@ def test_capped_context_keeps_entry_point_and_ranked_order_not_alphabetical(
         "phai theo thu tu xep hang (entry point truoc), khong theo chu cai"
     )
     assert body["citation_path"][0]["is_entry_point"] is True
+
+
+# --- Rerank path (P3): cross-encoder cham diem lai truoc khi cat ------------
+
+
+def test_rerank_enabled_reorders_context_by_reranker(monkeypatch, test_client):
+    """Khi RERANK_ENABLED, chat() phai goi rerank_ids va DUNG thu tu no tra ve
+    (o day dao art_1<->art_2) lam thu tu ngu canh + citation_path."""
+    monkeypatch.setattr(api.config, "RERANK_ENABLED", True)
+    monkeypatch.setattr(
+        api,
+        "find_entry_points",
+        MagicMock(return_value=[EntryPointResult(article_id="art_1", similarity=0.9)]),
+    )
+    traversal_result = TraversalResult(
+        visited_article_ids={"art_1", "art_2"},
+        edges=[TraversalEdge("art_1", "art_2", "REFERENCES")],
+        external_article_ids=set(),
+        visited_term_ids=set(),
+    )
+    monkeypatch.setattr(api, "traverse", MagicMock(return_value=traversal_result))
+    monkeypatch.setattr(
+        api.embedder,
+        "get_texts",
+        MagicMock(return_value={"art_1": "noi dung 1", "art_2": "noi dung 2"}),
+    )
+    # Reranker dao thu tu: art_2 dung dau (giu la ung vien lien quan nhat).
+    mock_rerank = MagicMock(return_value=["art_2", "art_1"])
+    monkeypatch.setattr(api, "rerank_ids", mock_rerank)
+    monkeypatch.setattr(api, "Neo4jClient", lambda *a, **kw: _FakeNeo4jClient())
+    monkeypatch.setattr(api, "_call_ollama", MagicMock(return_value="tra loi"))
+
+    body = test_client.post("/chat", json={"question": "cau hoi"}).json()
+
+    mock_rerank.assert_called_once()
+    # citation_path theo THU TU RERANK: art_2 truoc art_1.
+    assert [c["article_id"] for c in body["citation_path"]] == ["art_2", "art_1"]
+    # art_1 van la entry point du bi xep sau boi reranker.
+    art1 = next(c for c in body["citation_path"] if c["article_id"] == "art_1")
+    assert art1["is_entry_point"] is True
