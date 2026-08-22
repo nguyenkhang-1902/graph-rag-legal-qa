@@ -219,7 +219,11 @@ def _slug_from_url(url: str) -> str:
     "van-ban-hop-nhat-so-19-vbhn-vpqh-2026-hop-nhat-luat-bao-hiem-xa-hoi-so-41-2024-qh15".
     """
     last_segment = url.rstrip("/").rsplit("/", 1)[-1]
-    return last_segment.split("--", 1)[0]
+    slug = last_segment.split("--", 1)[0]
+    # Gioi han do dai ten file: slug vbpl.vn co the rat dai (vd ND 157 quan
+    # nhan ~230 ky tu) -> vuot MAX_PATH ~260 cua Windows khi ghep vao out_dir.
+    # Cat con 100 ky tu (van du phan biet trong danh muc BHXH nho).
+    return slug[:100]
 
 
 def fetch_bhxh_corpus(urls: list[str], out_dir: str | Path) -> list[Path]:
@@ -244,10 +248,13 @@ def fetch_bhxh_corpus(urls: list[str], out_dir: str | Path) -> list[Path]:
 
     written: list[Path] = []
     for i, url in enumerate(urls):
-        text = fetch_vbpl_noidung(url)
-        file_path = out_path / f"{_slug_from_url(url)}.txt"
-        file_path.write_text(text, encoding="utf-8")
-        written.append(file_path)
+        try:
+            text = fetch_vbpl_noidung(url)
+            file_path = out_path / f"{_slug_from_url(url)}.txt"
+            file_path.write_text(text, encoding="utf-8")
+            written.append(file_path)
+        except Exception as exc:  # bo qua doc loi, chay tiep
+            print(f"[fetch_bhxh_corpus] !! LOI luu {url}: {type(exc).__name__}: {exc}")
         if i < len(urls) - 1:
             time.sleep(CRAWL_DELAY_SECONDS)
     return written
