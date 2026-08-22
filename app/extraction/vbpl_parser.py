@@ -24,6 +24,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
+from app.extraction.doc_identity import build_doc_identity
 from app.extraction.structure_parser import ParsedDocument, parse_document
 
 # "Luat Bao hiem xa hoi so 41/2024/QH15" / "So hieu: 41/2024/QH15" ->
@@ -177,7 +178,15 @@ def parse_vbpl_content(noi_dung_text: str, thuoc_tinh_text: str = "") -> VbplDoc
     ngay_hieu_luc = _extract_ngay_hieu_luc(noi_dung_text, thuoc_tinh_text)
     ngay_het_hieu_luc = _extract_ngay_het_hieu_luc(thuoc_tinh_text)
 
-    fallback_doc_id = f"{so}-{nam}-{ma_hieu}".strip("-") if so else ""
+    # doc_id SLUGIFIED (qua build_doc_identity - MOT noi duy nhat tinh doc_id
+    # tu so hieu, dung CHUNG voi reference_extractor va app/ingest.py). Truoc
+    # day dung "{so}-{nam}-{ma_hieu}" chua slugify -> article_id un-slugified
+    # (vd "158-2025-NĐ-CP_dieu-5") KHONG khop target-id ma reference_extractor
+    # sinh ra (build_doc_identity -> "158-2025-nd-cp_dieu-5") => cross-doc
+    # REFERENCES treo, multi-hop khong chay (giai quyet Ruling 4 o P2).
+    fallback_doc_id = (
+        build_doc_identity(so, nam, ma_hieu).doc_id if so else ""
+    )
     parsed = parse_document(noi_dung_text, fallback_doc_id=fallback_doc_id)
 
     return VbplDoc(
