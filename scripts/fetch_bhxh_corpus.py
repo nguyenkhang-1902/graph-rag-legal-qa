@@ -62,14 +62,57 @@ _UA = (
 # Them URL vao day khi co van ban moi da XAC MINH THAT render dung (dang
 # `slug--uuid` day du, xem module docstring) - KHONG doan URL chua kiem
 # chung.
+_B = "https://vbpl.vn/van-ban/chi-tiet/"
 BHXH_CORPUS_URLS: list[dict] = [
+    # --- Luat truc tiep (3 che do) ---
     {
-        "url": (
-            "https://vbpl.vn/van-ban/chi-tiet/"
-            "van-ban-hop-nhat-so-19-vbhn-vpqh-2026-hop-nhat-luat-bao-hiem-xa-hoi-so-41-2024-qh15"
-            "--ff9cd9e0-97aa-11f1-a50f-4bcbcb89bfc0"
-        ),
-        "che_do": ["huu_tri", "mot_lan", "thai_san"],
+        "url": _B + "van-ban-hop-nhat-so-19-vbhn-vpqh-2026-hop-nhat-luat-bao-hiem-xa-hoi-so-41-2024-qh15--ff9cd9e0-97aa-11f1-a50f-4bcbcb89bfc0",
+        "che_do": ["huu_tri", "mot_lan", "thai_san"],  # Luat BHXH 2024 (VBHN)
+        # Trang VBHN co "Ngay co hieu luc: --" -> override bang su that trong
+        # chinh van ban: "co hieu luc ke tu ngay 01/7/2025".
+        "ngay_hieu_luc": "2025-07-01",
+    },
+    # --- Nghi dinh/Thong tu huong dan Luat BHXH 2024 (2025) ---
+    {
+        "url": _B + "nghi-dinh-so-158-2025-nd-cp-quy-dinh-chi-tiet-va-huong-dan-thi-hanh-mot-so-dieu-cua-luat-bao-hiem-xa-hoi-ve-bao-hiem-xa-hoi-bat-buoc--178757",
+        "che_do": ["huu_tri", "mot_lan", "thai_san"],  # ND 158/2025 BHXH bat buoc (chung)
+    },
+    {
+        "url": _B + "nghi-dinh-so-159-2025-nd-cp-quy-dinh-chi-tiet-va-huong-dan-thi-hanh-mot-so-dieu-cua-luat-bao-hiem-xa-hoi-ve-bao-hiem-xa-hoi-tu-nguyen--179149",
+        "che_do": ["huu_tri", "mot_lan"],  # ND 159/2025 BHXH tu nguyen
+    },
+    {
+        "url": _B + "nghi-dinh-so-176-2025-nd-cp-huong-dan-luat-bao-hiem-xa-hoi-ve-tro-cap-huu-tri-xa-hoi--184035",
+        "che_do": ["huu_tri"],  # ND 176/2025 tro cap huu tri xa hoi
+    },
+    {
+        "url": _B + "nghi-dinh-so-157-2025-nd-cp-quy-dinh-chi-tiet-va-bien-phap-thi-hanh-mot-so-dieu-cua-luat-bao-hiem-xa-hoi-ve-bao-hiem-xa-hoi-bat-buoc-doi-voi-quan-nhan-cong-an-nhan-dan-dan-quan-thuong-truc-va-nguoi-lam-cong-tac-co-yeu-huong-luong-nhu-doi-voi-quan-nhan--179780",
+        "che_do": ["huu_tri", "mot_lan", "thai_san"],  # ND 157/2025 BHXH bat buoc quan nhan/CAND
+    },
+    # --- Luat lien quan ---
+    {
+        "url": _B + "bo-luat-lao-dong-so-45-2019-qh14--139264",
+        "che_do": ["thai_san"],  # Bo luat Lao dong 2019 (nghi thai san, HDLD)
+    },
+    {
+        "url": _B + "luat-viec-lam-so-38-2013-qh13--32912",
+        "che_do": ["that_nghiep"],  # Luat Viec lam (BH that nghiep)
+    },
+    {
+        "url": _B + "nghi-dinh-so-374-2025-nd-cp-quy-dinh-chi-tiet-mot-so-dieu-cua-luat-viec-lam-ve-bao-hiem-that-nghiep--186281",
+        "che_do": ["that_nghiep"],  # ND 374/2025 BH that nghiep
+    },
+    {
+        "url": _B + "luat-an-toan-ve-sinh-lao-dong-so-84-2015-qh13--70811",
+        "che_do": ["tai_nan_lao_dong"],  # Luat ATVSLD (TNLD-BNN)
+    },
+    {
+        "url": _B + "thong-tu-so-60-2025-tt-byt-quy-dinh-ve-benh-nghe-nghiep-duoc-huong-bao-hiem-xa-hoi-va-huong-dan-chan-doan-giam-dinh-muc-suy-giam-kha-nang-lao-dong-do-benh-nghe-nghiep--187267",
+        "che_do": ["tai_nan_lao_dong"],  # TT 60/2025-BYT benh nghe nghiep
+    },
+    {
+        "url": _B + "luat-bao-hiem-y-te-so-25-2008-qh12--12326",
+        "che_do": ["y_te"],  # Luat BHYT (lien quan)
     },
 ]
 
@@ -128,17 +171,43 @@ def fetch_vbpl_noidung(url: str) -> str:
     BHXH) thay vi mot khoang `sleep` co dinh - on dinh hon truoc bien dong
     toc do mang/render.
     """
+    return fetch_vbpl_document(url)[0]
+
+
+def fetch_vbpl_document(url: str) -> tuple[str, str]:
+    """Fetch (noi_dung_text, thuoc_tinh_text) cua mot van ban vbpl.vn.
+
+    `noi_dung_text`: tab "Noi dung" (mac dinh khi load), da `_strip_page_chrome`.
+    `thuoc_tinh_text`: text sau khi CLICK tab "Thuoc tinh" - bang metadata
+    nhan->gia tri (So hieu / Loai van ban / Ngay co hieu luc / Ngay het
+    hieu luc...). CAN cho so hieu + ngay hieu luc DUNG: parse tu noi dung
+    body chi lay duoc so hieu/ngay cua van ban DUOC DAN CHIEU o preamble
+    ("Can cu Luat X so .../...") - SAI voi van ban khong phai Luat BHXH.
+    `parse_vbpl_content` uu tien `thuoc_tinh_text` (xem vbpl_parser.py).
+    """
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
         page = browser.new_context(user_agent=_UA, locale="vi-VN").new_page()
         page.goto(url, wait_until="load", timeout=60000)
+        # Cho render xong: body chua "Điều 1" (moi van ban luat deu co) VA du
+        # dai (>6000 ky tu) de phan biet voi shell/trang "khong ton tai"
+        # (~200-600 ky tu). Robust hon "Phạm vi điều chỉnh" (khong phai N-D/
+        # T-T nao cung co dung cum do o Dieu 1).
         page.wait_for_function(
-            "() => document.body.innerText.includes('Phạm vi điều chỉnh')",
-            timeout=30000,
+            "() => document.body.innerText.includes('Điều 1') "
+            "&& document.body.innerText.length > 6000",
+            timeout=40000,
         )
-        text = page.inner_text("body")
+        noi_dung = _strip_page_chrome(page.inner_text("body"))
+        thuoc_tinh = ""
+        try:
+            page.get_by_role("tab", name="Thuộc tính").click(timeout=8000)
+            page.wait_for_timeout(1500)
+            thuoc_tinh = page.inner_text("body")
+        except Exception:  # noqa: BLE001 - thieu thuoc tinh chi lam giam metadata
+            pass
         browser.close()
-        return _strip_page_chrome(text)
+        return noi_dung, thuoc_tinh
 
 
 def _slug_from_url(url: str) -> str:
@@ -189,6 +258,7 @@ def ingest_vbpl_doc(
     noi_dung_text: str,
     che_do: list[str],
     thuoc_tinh_text: str = "",
+    ngay_hieu_luc_override: str | None = None,
 ) -> str:
     """Parse text da render cua trang chi tiet vbpl.vn (`noi_dung_text`,
     tuy chon `thuoc_tinh_text`) va ghi vao graph qua engine THAT (T2/T3):
@@ -216,9 +286,15 @@ def ingest_vbpl_doc(
     """
     doc = parse_vbpl_content(noi_dung_text, thuoc_tinh_text)
     ident = build_doc_identity(doc.so, doc.nam, doc.ma_hieu)
+    # `ngay_hieu_luc_override`: dung khi nguon (Thuoc tinh + noi dung) khong
+    # cho ngay hieu luc dung - vd trang VBHN co "Ngay co hieu luc: --" va
+    # phan strip chrome khong bat duoc "Ngay cap nhat" -> doc nham. Gia tri
+    # override PHAI la su that ghi trong chinh van ban (vd Luat BHXH 2024:
+    # "co hieu luc ke tu ngay 01/7/2025"), KHONG phai doan.
+    ngay_hl = ngay_hieu_luc_override or doc.ngay_hieu_luc
     ident = dataclasses.replace(
         ident,
-        ngay_hieu_luc=doc.ngay_hieu_luc,
+        ngay_hieu_luc=ngay_hl,
         ngay_het_hieu_luc=doc.ngay_het_hieu_luc,
         che_do=che_do,
     )
@@ -264,24 +340,36 @@ def main() -> None:
         if client_cm is not None:
             client_cm.ensure_constraints_and_indexes()
 
+        ok, failed = 0, []
         for i, entry in enumerate(entries):
             url, che_do = entry["url"], entry["che_do"]
             print(f"[fetch_bhxh_corpus] ({i + 1}/{len(entries)}) fetching {url}")
-            noi_dung_text = fetch_vbpl_noidung(url)
-
-            if args.dry_run:
-                doc = parse_vbpl_content(noi_dung_text)
-                print(
-                    f"[fetch_bhxh_corpus] DRY RUN so={doc.so} nam={doc.nam} "
-                    f"ma_hieu={doc.ma_hieu} ngay_hieu_luc={doc.ngay_hieu_luc} "
-                    f"ngay_het_hieu_luc={doc.ngay_het_hieu_luc}"
-                )
-            else:
-                doc_id = ingest_vbpl_doc(client_cm, noi_dung_text, che_do)
-                print(f"[fetch_bhxh_corpus] ingested doc_id={doc_id}")
+            try:
+                noi_dung_text, thuoc_tinh_text = fetch_vbpl_document(url)
+                if args.dry_run:
+                    doc = parse_vbpl_content(noi_dung_text, thuoc_tinh_text)
+                    print(
+                        f"[fetch_bhxh_corpus] DRY RUN so={doc.so} nam={doc.nam} "
+                        f"ma_hieu={doc.ma_hieu} ngay_hieu_luc={doc.ngay_hieu_luc} "
+                        f"ngay_het_hieu_luc={doc.ngay_het_hieu_luc}"
+                    )
+                else:
+                    doc_id = ingest_vbpl_doc(
+                        client_cm, noi_dung_text, che_do, thuoc_tinh_text,
+                        ngay_hieu_luc_override=entry.get("ngay_hieu_luc"),
+                    )
+                    print(f"[fetch_bhxh_corpus] ingested doc_id={doc_id}")
+                ok += 1
+            except Exception as exc:  # bo qua doc loi, chay tiep batch
+                print(f"[fetch_bhxh_corpus] !! LOI bo qua {url}: {type(exc).__name__}: {exc}")
+                failed.append(url)
 
             if i < len(entries) - 1:
                 time.sleep(CRAWL_DELAY_SECONDS)
+
+        print(f"[fetch_bhxh_corpus] XONG: {ok}/{len(entries)} ok, {len(failed)} loi.")
+        for u in failed:
+            print(f"[fetch_bhxh_corpus]   FAILED: {u}")
     finally:
         if client_cm is not None:
             client_cm.close()
