@@ -1,0 +1,20 @@
+{
+  "_note": "Bo QA kieu ALQAC (PA-B): do CHAT LUONG CAU TRA LOI, khong chi retrieval. 3 loai: true_false (dap an Dung/Sai), multiple_choice (A/B/C/D), free_text (key_facts phai xuat hien). Dap an + gold_article_id XAC MINH tu noi dung luat that.",
+  "questions": [
+    {"type": "true_false", "question": "Lao động nữ được nghỉ thai sản trước và sau khi sinh con tổng cộng 06 tháng.", "answer": "Đúng", "gold_article_ids": ["45-2019-qh14_dieu-139"]},
+    {"type": "true_false", "question": "Thời gian nghỉ thai sản trước khi sinh của lao động nữ không được quá 03 tháng.", "answer": "Sai", "gold_article_ids": ["45-2019-qh14_dieu-139"]},
+    {"type": "true_false", "question": "Người lao động đủ tuổi nghỉ hưu nhưng chưa đủ 15 năm đóng bảo hiểm xã hội thì được hưởng bảo hiểm xã hội một lần.", "answer": "Đúng", "gold_article_ids": ["41-2024-qh15_dieu-70"]},
+    {"type": "true_false", "question": "Người lao động đơn phương chấm dứt hợp đồng lao động trái pháp luật vẫn được hưởng trợ cấp thất nghiệp.", "answer": "Sai", "gold_article_ids": ["38-2013-qh13_dieu-49"]},
+    {"type": "true_false", "question": "Để được hưởng trợ cấp mai táng, người đó phải có thời gian đóng bảo hiểm xã hội bắt buộc từ đủ 12 tháng trở lên.", "answer": "Đúng", "gold_article_ids": ["41-2024-qh15_dieu-85"]},
+    {"type": "true_false", "question": "Lao động nữ sinh đôi thì tính từ con thứ hai, mỗi con mẹ được nghỉ thai sản thêm 02 tháng.", "answer": "Sai", "gold_article_ids": ["45-2019-qh14_dieu-139"]},
+    {"type": "multiple_choice", "question": "Lao động nữ được nghỉ thai sản khi sinh con trong bao lâu?", "options": {"A": "04 tháng", "B": "05 tháng", "C": "06 tháng", "D": "12 tháng"}, "answer": "C", "gold_article_ids": ["45-2019-qh14_dieu-139"]},
+    {"type": "multiple_choice", "question": "Thời gian nghỉ thai sản trước khi sinh tối đa là bao nhiêu?", "options": {"A": "01 tháng", "B": "02 tháng", "C": "03 tháng", "D": "Không giới hạn"}, "answer": "B", "gold_article_ids": ["45-2019-qh14_dieu-139"]},
+    {"type": "multiple_choice", "question": "Thời gian đóng bảo hiểm xã hội bắt buộc tối thiểu để thân nhân được hưởng trợ cấp mai táng là bao nhiêu?", "options": {"A": "06 tháng", "B": "12 tháng", "C": "20 năm", "D": "Không yêu cầu"}, "answer": "B", "gold_article_ids": ["41-2024-qh15_dieu-85"]},
+    {"type": "multiple_choice", "question": "Lao động nữ cần đóng bảo hiểm xã hội bao nhiêu năm để mức lương hưu hằng tháng đạt 45%?", "options": {"A": "10 năm", "B": "15 năm", "C": "20 năm", "D": "25 năm"}, "answer": "B", "gold_article_ids": ["41-2024-qh15_dieu-66"]},
+    {"type": "multiple_choice", "question": "Người lao động phải đóng bảo hiểm thất nghiệp đủ bao lâu trong vòng 24 tháng trước khi chấm dứt hợp đồng để được hưởng trợ cấp thất nghiệp?", "options": {"A": "06 tháng", "B": "12 tháng", "C": "18 tháng", "D": "24 tháng"}, "answer": "B", "gold_article_ids": ["38-2013-qh13_dieu-49"]},
+    {"type": "free_text", "question": "Điều kiện để hưởng trợ cấp thất nghiệp là gì?", "key_facts": ["chấm dứt hợp đồng", "12 tháng"], "gold_article_ids": ["38-2013-qh13_dieu-49"]},
+    {"type": "free_text", "question": "Lao động nữ được nghỉ thai sản khi sinh con bao lâu?", "key_facts": ["06 tháng"], "gold_article_ids": ["45-2019-qh14_dieu-139"]},
+    {"type": "free_text", "question": "Điều kiện hưởng bảo hiểm xã hội một lần khi đủ tuổi nghỉ hưu?", "key_facts": ["15 năm"], "gold_article_ids": ["41-2024-qh15_dieu-70"]},
+    {"type": "free_text", "question": "Thân nhân được hưởng trợ cấp mai táng cần điều kiện gì về thời gian đóng bảo hiểm xã hội?", "key_facts": ["12 tháng"], "gold_article_ids": ["41-2024-qh15_dieu-85"]}
+  ]
+}
