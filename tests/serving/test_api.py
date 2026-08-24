@@ -429,3 +429,28 @@ def test_rerank_enabled_reorders_context_by_reranker(monkeypatch, test_client):
     # art_1 van la entry point du bi xep sau boi reranker.
     art1 = next(c for c in body["citation_path"] if c["article_id"] == "art_1")
     assert art1["is_entry_point"] is True
+
+
+# --- Guardrail hau xu ly: chan LLM trich dan van ban ngoai ngu canh --------
+
+def test_guard_hallucinated_citations_flags_docs_not_in_context():
+    ctx_docs = {"41-2024-qh15", "158-2025-nd-cp"}
+    ans = "Theo Nghị định 115/2015/NĐ-CP thì lao động nữ nghỉ 6 tháng."
+    guarded, hallu = api._guard_hallucinated_citations(ans, ctx_docs)
+    assert hallu == ["115-2015-nd-cp"]
+    assert "⚠️" in guarded and "115-2015-nd-cp" in guarded
+
+
+def test_guard_hallucinated_citations_ok_when_all_in_context():
+    ctx_docs = {"41-2024-qh15"}
+    ans = "Theo Điều 70 41-2024-qh15_dieu-70 thì..."
+    guarded, hallu = api._guard_hallucinated_citations(ans, ctx_docs)
+    assert hallu == []
+    assert guarded == ans  # khong gan canh bao
+
+
+def test_guard_hallucinated_citations_recognizes_article_id_form():
+    ctx_docs = {"41-2024-qh15"}
+    ans = "Theo 158-2025-nd-cp_dieu-14 thì..."  # doc_id 158-2025-nd-cp KHONG trong ctx
+    _guarded, hallu = api._guard_hallucinated_citations(ans, ctx_docs)
+    assert hallu == ["158-2025-nd-cp"]

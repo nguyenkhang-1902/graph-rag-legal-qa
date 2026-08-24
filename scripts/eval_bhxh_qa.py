@@ -79,8 +79,21 @@ def _score_true_false(ans: str, gold: str) -> bool:
 
 
 def _score_mc(ans: str, gold: str) -> bool:
-    m = re.search(r"\b([ABCD])\b", ans.strip().upper())
-    return bool(m) and m.group(1) == gold.upper()
+    """Bat chu cai dap an: uu tien mau "X)"/"X."/"X:"/"dap an X"/"chon X"
+    (dau chuoi hoac sau tu chi dinh) - de tranh khop nham chu cai xuat hien
+    ngau nhien trong giai thich. Fallback ve "\\b[ABCD]\\b" o dau chuoi."""
+    up = ans.strip().upper()
+    patterns = [
+        r"^\s*([ABCD])\s*[\)\.:\-]",           # "C)" "C." "C:" "C -"
+        r"(?:ĐÁP\s*ÁN|CHỌN|CÂU\s*TR[ẢA]\s*L[ỜO]I)\s*(?:LÀ|:|\s)+\s*([ABCD])\b",
+        r"^\s*([ABCD])\s*$",                    # chi mot chu cai
+        r"^\s*([ABCD])\b",                      # dau chuoi
+    ]
+    for p in patterns:
+        m = re.search(p, up)
+        if m:
+            return m.group(1) == gold.upper()
+    return False
 
 
 def _score_free(ans: str, key_facts: list[str], ranked: list[str], gold_ids: list[str]) -> tuple[bool, bool]:

@@ -15,7 +15,7 @@
     {"type": "true_false", "question": "Tỷ lệ đóng bảo hiểm xã hội bắt buộc vào quỹ ốm đau và thai sản là 5% tiền lương.", "answer": "Sai", "gold_article_ids": ["41-2024-qh15_dieu-32"]},
     {"type": "true_false", "question": "Người lao động đóng bảo hiểm xã hội bắt buộc hằng tháng bằng 8% tiền lương làm căn cứ đóng.", "answer": "Đúng", "gold_article_ids": ["41-2024-qh15_dieu-33"]},
     {"type": "true_false", "question": "Lao động nam đóng bảo hiểm xã hội cao hơn 35 năm khi nghỉ hưu được nhận thêm trợ cấp một lần ngoài lương hưu.", "answer": "Đúng", "gold_article_ids": ["41-2024-qh15_dieu-68"]},
-    {"type": "true_false", "question": "Lao động nữ được nghỉ trước khi sinh và sau khi sinh có thể gộp lại nghỉ 06 tháng liên tục sau sinh.", "answer": "Đúng", "gold_article_ids": ["45-2019-qh14_dieu-139"]},
+    {"type": "true_false", "question": "Tổng thời gian nghỉ thai sản trước và sau khi sinh của lao động nữ theo Bộ luật Lao động là 06 tháng.", "answer": "Đúng", "gold_article_ids": ["45-2019-qh14_dieu-139"]},
     {"type": "true_false", "question": "Người sử dụng lao động che giấu, khai báo sai sự thật về tai nạn lao động là hành vi bị nghiêm cấm.", "answer": "Đúng", "gold_article_ids": ["84-2015-qh13_dieu-12"]},
     {"type": "true_false", "question": "Người lao động chỉ được nộp hồ sơ hưởng trợ cấp thất nghiệp trong 15 ngày kể từ khi chấm dứt hợp đồng.", "answer": "Sai", "gold_article_ids": ["38-2013-qh13_dieu-46"]},
     {"type": "true_false", "question": "Người bị suy giảm khả năng lao động từ 81% trở lên bị liệt cột sống được hưởng thêm trợ cấp phục vụ hằng tháng.", "answer": "Đúng", "gold_article_ids": ["84-2015-qh13_dieu-52"]},

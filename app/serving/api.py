@@ -26,6 +26,7 @@ framework khong can thiet) - goi HTTP truc tiep qua `httpx`.
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass
 
 import httpx
@@ -198,21 +199,86 @@ def _build_prompt(
 
     return (
         "Bạn là trợ lý pháp luật về bảo hiểm xã hội, trả lời cho NGƯỜI LAO "
-        "ĐỘNG phổ thông. Quy tắc BẮT BUỘC:\n"
-        "1. Trả lời TRỰC TIẾP và ĐÚNG TRỌNG TÂM câu hỏi, ngắn gọn, dễ hiểu, "
-        "không thuật ngữ rườm rà. KHÔNG liệt kê thông tin ngoài phạm vi câu "
-        "hỏi dù NGỮ CẢNH có chứa.\n"
-        "2. CHỈ dùng nội dung trong NGỮ CẢNH dưới đây - KHÔNG bịa, KHÔNG dùng "
-        "kiến thức ngoài. Nếu NGỮ CẢNH không đủ để trả lời, nói thẳng: "
-        "\"Chưa tìm thấy quy định cụ thể trong dữ liệu\" - KHÔNG suy đoán.\n"
-        "3. Mỗi ý PHẢI kèm trích dẫn Điều/article_id lấy từ NGỮ CẢNH (ví dụ "
-        "\"(Điều 70, 41-2024-qh15)\") để người đọc kiểm chứng.\n"
+        "ĐỘNG phổ thông. Quy tắc BẮT BUỘC (vi phạm bất kỳ = câu trả lời SAI):\n"
+        "1. Trả lời TRỰC TIẾP và ĐÚNG TRỌNG TÂM câu hỏi, ngắn gọn, dễ hiểu. "
+        "KHÔNG liệt kê thông tin ngoài phạm vi câu hỏi dù NGỮ CẢNH có chứa.\n"
+        "2. CHỈ dùng nội dung có trong NGỮ CẢNH dưới đây. TUYỆT ĐỐI KHÔNG "
+        "dùng kiến thức bên ngoài, KHÔNG viện dẫn văn bản nào không xuất "
+        "hiện trong NGỮ CẢNH (vd đừng nói \"Nghị định 115/2015\", \"Luật "
+        "Việc làm 2019\" nếu chúng KHÔNG có ở dưới). Nếu NGỮ CẢNH không đủ "
+        "để trả lời, nói CHÍNH XÁC câu này: \"Chưa tìm thấy quy định cụ thể "
+        "trong dữ liệu\" và dừng lại - KHÔNG suy đoán, KHÔNG bịa.\n"
+        "3. Mỗi ý PHẢI kèm trích dẫn Điều/article_id LẤY TỪ NGỮ CẢNH (ví dụ "
+        "\"(Điều 70, 41-2024-qh15)\"). Chỉ dẫn Điều/article_id nào THỰC SỰ "
+        "xuất hiện ở NGỮ CẢNH.\n"
         "4. Điều nào NGỮ CẢNH ghi là ngoài dữ liệu / chỉ có preview thì nói "
         "rõ, không bịa nội dung của nó.\n\n"
         f"CÂU HỎI: {question}\n\n"
         f"NGỮ CẢNH:\n{context_text}\n\n"
-        "TRẢ LỜI (ngắn gọn, đúng trọng tâm, có trích dẫn):"
+        "TRẢ LỜI (ngắn gọn, đúng trọng tâm, chỉ dùng ngữ cảnh, có trích dẫn):"
     )
+
+
+# --- Guardrail hau xu ly: chan LLM "trich dan ma" (P3+) ------------------
+#
+# LLM 7b van bi thien vi boi weights noi tai: du prompt cam CUC MANH, no
+# van viet "theo Nghi dinh 115/2015" hay "Luat Viec lam 2019" - nhung van
+# ban KHONG co trong ngu canh. Vi day la san pham LUAT, mot trich dan sai
+# nguon = mot tuyen bo phap ly sai. Guardrail nay quet cau tra loi tim so
+# hieu van ban va article_id, KHONG khop ngu canh -> gan CANH BAO.
+#
+# Regex khop:
+#   - so hieu VBQPPL VN: "115/2015/NĐ-CP", "41/2024/QH15", "51/2024/QH15",
+#     "84/2015/QH13", "38/2013/QH13", "45/2019/QH14", "60/2025/TT-BYT"...
+#   - article_id ta dung: "41-2024-qh15_dieu-70", "158-2025-nd-cp_dieu-14"
+# So hieu VBQPPL VN: "115/2015/NĐ-CP", "41/2024/QH15", "60/2025/TT-BYT"...
+# Chi khop dinh dang co dau "/" (chuan VBQPPL) - KHONG khop "-" vi trung
+# dinh dang slugified doc_id, se sinh false-positive (article_id noi tiep
+# nhau bang "-" -> regex chop ngan mid-string). Slugified form da co
+# _ARTICLE_ID_RE xu ly rieng.
+_SO_HIEU_CITE_RE = re.compile(
+    r"\b(\d{1,4})/(\d{4})/([A-Za-zĐđ][A-Za-zĐđ0-9\-]*)\b"
+)
+_ARTICLE_ID_RE = re.compile(r"\b(\d{1,4}-\d{4}-[a-zđ0-9\-]+_dieu-\d+)\b")
+
+
+def _normalize_so_hieu(so: str, nam: str, ma: str) -> str:
+    """so-hieu -> doc_id slug tuong duong (khop `build_doc_identity`)."""
+    from app.extraction.doc_identity import build_doc_identity
+    try:
+        return build_doc_identity(so, nam, ma).doc_id
+    except Exception:
+        return f"{so}-{nam}-{ma}".lower()
+
+
+def _cited_doc_ids(answer: str) -> set[str]:
+    """Rut ra tat ca doc_id da trich dan trong cau tra loi (chuan hoa slug)."""
+    cited: set[str] = set()
+    for so, nam, ma in _SO_HIEU_CITE_RE.findall(answer):
+        cited.add(_normalize_so_hieu(so, nam, ma))
+    for aid in _ARTICLE_ID_RE.findall(answer):
+        # article_id -> doc_id (bo "_dieu-N")
+        cited.add(aid.split("_dieu-")[0])
+    return cited
+
+
+_HALLUCINATION_WARNING = (
+    "\n\n⚠️ **Cảnh báo**: Câu trả lời viện dẫn văn bản KHÔNG có trong dữ "
+    "liệu đang cung cấp ({docs}). Vui lòng kiểm chứng lại với nguồn chính "
+    "thức tại vbpl.vn trước khi áp dụng."
+)
+
+
+def _guard_hallucinated_citations(answer: str, context_doc_ids: set[str]) -> tuple[str, list[str]]:
+    """Tra ve (answer_da_gan_canh_bao_neu_can, danh_sach_doc_id_bi_bia).
+
+    Chi canh bao voi doc_id THUC SU la van ban phap luat (co dinh dang so
+    hieu), KHONG canh bao voi cac chuoi ngau nhien LLM viet ra."""
+    cited = _cited_doc_ids(answer)
+    hallu = sorted(cited - context_doc_ids)
+    if hallu:
+        return answer + _HALLUCINATION_WARNING.format(docs=", ".join(hallu)), hallu
+    return answer, []
 
 
 def _call_ollama(prompt: str) -> str:
@@ -293,6 +359,10 @@ def chat(request: ChatRequest) -> dict:
     prompt = _build_prompt(request.question, contexts, ranked_ids)
     answer = _call_ollama(prompt)
 
+    # Guardrail hau xu ly: chan LLM trich dan van ban KHONG co trong ngu canh.
+    context_doc_ids = {aid.split("_dieu-")[0] for aid in ranked_ids}
+    answer, hallucinated = _guard_hallucinated_citations(answer, context_doc_ids)
+
     citation_path = [
         {
             "article_id": article_id,
@@ -318,4 +388,5 @@ def chat(request: ChatRequest) -> dict:
         "answer": answer,
         "citation_path": citation_path,
         "edges_used": edges_used,
+        "hallucinated_citations": hallucinated,
     }
