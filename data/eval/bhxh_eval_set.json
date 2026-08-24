@@ -1,5 +1,5 @@
 {
-  "_note": "Bo eval retrieval BHXH (P2-T3). gold_article_ids XAC MINH tu tieu de Dieu (noi_dung_preview) trong Neo4j - KHONG doan. hit@k = it nhat 1 gold nam trong top-k truy xuat.",
+  "_note": "Bo eval retrieval BHXH (P2-T3, mo rong dot 2). gold_article_ids XAC MINH tu tieu de Dieu (noi_dung_preview) trong Neo4j - KHONG doan. hit@k = it nhat 1 gold nam trong top-k truy xuat.",
   "questions": [
     {"question": "Điều kiện hưởng bảo hiểm xã hội một lần là gì?", "gold_article_ids": ["41-2024-qh15_dieu-70"], "che_do": "mot_lan"},
     {"question": "Mức lương hưu hằng tháng được tính như thế nào?", "gold_article_ids": ["41-2024-qh15_dieu-66"], "che_do": "huu_tri"},
@@ -18,6 +18,18 @@
     {"question": "Dưỡng sức phục hồi sức khoẻ sau khi ốm đau?", "gold_article_ids": ["41-2024-qh15_dieu-46"], "che_do": "om_dau"},
     {"question": "Điều kiện hưởng trợ cấp thất nghiệp là gì?", "gold_article_ids": ["38-2013-qh13_dieu-49"], "che_do": "that_nghiep"},
     {"question": "Mức và thời gian hưởng trợ cấp thất nghiệp?", "gold_article_ids": ["38-2013-qh13_dieu-50"], "che_do": "that_nghiep"},
-    {"question": "Ai bắt buộc tham gia bảo hiểm thất nghiệp?", "gold_article_ids": ["38-2013-qh13_dieu-43"], "che_do": "that_nghiep"}
+    {"question": "Ai bắt buộc tham gia bảo hiểm thất nghiệp?", "gold_article_ids": ["38-2013-qh13_dieu-43"], "che_do": "that_nghiep"},
+    {"question": "Ai được hưởng chế độ tử tuất?", "gold_article_ids": ["41-2024-qh15_dieu-84"], "che_do": "tu_tuat"},
+    {"question": "Trợ cấp mai táng là bao nhiêu?", "gold_article_ids": ["41-2024-qh15_dieu-85"], "che_do": "tu_tuat"},
+    {"question": "Ai phải tham gia bảo hiểm xã hội bắt buộc?", "gold_article_ids": ["41-2024-qh15_dieu-2"], "che_do": "chung"},
+    {"question": "Bảo hiểm xã hội gồm những chế độ nào?", "gold_article_ids": ["41-2024-qh15_dieu-4"], "che_do": "chung"},
+    {"question": "Chế độ với người lao động không đủ điều kiện hưởng lương hưu và chưa đủ tuổi trợ cấp hưu trí?", "gold_article_ids": ["41-2024-qh15_dieu-23"], "che_do": "huu_tri"},
+    {"question": "Mức trợ cấp một lần khi bị tai nạn lao động?", "gold_article_ids": ["84-2015-qh13_dieu-48"], "che_do": "tai_nan_lao_dong"},
+    {"question": "Trợ cấp hằng tháng do tai nạn lao động, bệnh nghề nghiệp?", "gold_article_ids": ["84-2015-qh13_dieu-49"], "che_do": "tai_nan_lao_dong"},
+    {"question": "Người lao động chết do tai nạn lao động thì thân nhân được trợ cấp gì?", "gold_article_ids": ["84-2015-qh13_dieu-53"], "che_do": "tai_nan_lao_dong"},
+    {"question": "Hồ sơ hưởng trợ cấp tai nạn lao động, bệnh nghề nghiệp gồm gì?", "gold_article_ids": ["88-2020-nd-cp_dieu-7"], "che_do": "tai_nan_lao_dong"},
+    {"question": "Trốn đóng bảo hiểm xã hội bắt buộc bị xử phạt thế nào?", "gold_article_ids": ["12-2022-nd-cp_dieu-39"], "che_do": "xu_phat"},
+    {"question": "Tạm dừng đóng bảo hiểm xã hội bắt buộc trong trường hợp nào?", "gold_article_ids": ["41-2024-qh15_dieu-37"], "che_do": "chung"},
+    {"question": "Hồ sơ đăng ký tham gia bảo hiểm xã hội bắt buộc gồm gì?", "gold_article_ids": ["41-2024-qh15_dieu-27"], "che_do": "chung"}
   ]
 }
