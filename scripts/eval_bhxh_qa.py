@@ -90,10 +90,25 @@ def _score_free(ans: str, key_facts: list[str], ranked: list[str], gold_ids: lis
     return facts_ok, cite_ok
 
 
+# Cac cum tu chi guardrail hoat dong (LLM khong bia, tu choi lich su).
+_REFUSAL_MARKERS = [
+    "chưa tìm thấy", "không có", "không tìm thấy", "ngoài phạm vi",
+    "không thuộc", "không liên quan", "không đủ căn cứ", "không thể trả lời",
+    "không có thông tin", "không có dữ liệu",
+]
+
+
+def _score_out_of_scope(ans: str) -> bool:
+    """Cau ngoai pham vi -> tra loi PHAI la tu choi/thua nhan khong co du lieu.
+    KHONG duoc phep bia noi dung phap luat."""
+    a = _strip(ans)
+    return any(_strip(m) in a for m in _REFUSAL_MARKERS)
+
+
 def main() -> None:
     data = json.loads(QA_PATH.read_text(encoding="utf-8"))
     qs = data["questions"]
-    by_type: dict[str, list[bool]] = {"true_false": [], "multiple_choice": [], "free_text": []}
+    by_type: dict[str, list[bool]] = {"true_false": [], "multiple_choice": [], "free_text": [], "out_of_scope": []}
     free_cite: list[bool] = []
     retr_hit: list[bool] = []
     wrong: list[str] = []
@@ -101,10 +116,18 @@ def main() -> None:
     with Neo4jClient() as client:
         for q in qs:
             ranked, texts = _retrieve(q["question"], client)
-            retr_hit.append(any(g in ranked for g in q["gold_article_ids"]))
+            if q["gold_article_ids"]:
+                retr_hit.append(any(g in ranked for g in q["gold_article_ids"]))
             ctx = _context_block(ranked, texts)
             t = q["type"]
-            if t == "true_false":
+            if t == "out_of_scope":
+                # Dung goc chat() flow: ngu canh la BHXH nhung cau ngoai pham vi
+                # -> LLM PHAI tu choi/thua nhan khong co du lieu, khong bia.
+                ans = _ask(q["question"], ctx,
+                           "Nếu ngữ cảnh không đủ để trả lời câu hỏi này, hãy trả lời: "
+                           "\"Chưa tìm thấy quy định cụ thể trong dữ liệu\" và KHÔNG được bịa.")
+                ok = _score_out_of_scope(ans)
+            elif t == "true_false":
                 ans = _ask(q["question"], ctx, "Chỉ trả lời DUY NHẤT một từ: \"Đúng\" hoặc \"Sai\".")
                 ok = _score_true_false(ans, q["answer"])
             elif t == "multiple_choice":
@@ -131,7 +154,8 @@ def main() -> None:
     print(f"  Multiple-choice acc : {pct(by_type['multiple_choice'])}")
     print(f"  Free-text key-facts : {pct(by_type['free_text'])}")
     print(f"  Free-text citation  : {pct(free_cite)}")
-    allb = by_type['true_false'] + by_type['multiple_choice'] + by_type['free_text']
+    print(f"  Out-of-scope refusal: {pct(by_type['out_of_scope'])}")
+    allb = by_type['true_false'] + by_type['multiple_choice'] + by_type['free_text'] + by_type['out_of_scope']
     print(f"  === TONG accuracy   : {pct(allb)} ===")
     if wrong:
         print("  Sai:")
