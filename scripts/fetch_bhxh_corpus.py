@@ -139,6 +139,19 @@ BHXH_CORPUS_URLS: list[dict] = [
         "url": _B + "nghi-dinh-so-12-2022-nd-cp-quy-dinh-xu-phat-vi-pham-hanh-chinh-trong-linh-vuc-lao-dong-bao-hiem-xa-hoi-nguoi-lao-dong-viet-nam-di-lam-viec-o-nuoc-ngoai-theo-hop-dong--153913",
         "che_do": ["xu_phat"],  # ND 12/2022 xu phat VPHC lao dong BHXH
     },
+    # --- Mo rong dot 3 (2026-08-23): lao dong - tien luong ---
+    {
+        "url": _B + "nghi-dinh-so-145-2020-nd-cp-quy-dinh-chi-tiet-va-huong-dan-thi-hanh-mot-so-dieu-cua-bo-luat-lao-dong-ve-dieu-kien-lao-dong-va-quan-he-lao-dong--152668",
+        "che_do": ["lao_dong", "tien_luong"],  # ND 145/2020 huong dan BLLD
+    },
+    {
+        "url": _B + "nghi-dinh-so-293-2025-nd-cp-quy-dinh-muc-luong-toi-thieu-doi-voi-nguoi-lao-dong-lam-viec-theo-hop-dong-lao-dong--183939",
+        "che_do": ["tien_luong"],  # ND 293/2025 luong toi thieu vung
+    },
+    {
+        "url": _B + "nghi-dinh-so-219-2025-nd-cp-quy-dinh-ve-nguoi-lao-dong-nuoc-ngoai-lam-viec-tai-viet-nam--180273",
+        "che_do": ["lao_dong"],  # ND 219/2025 NLD nuoc ngoai
+    },
 ]
 
 # Khoang cach lich su giua 2 lan fetch khi corpus co nhieu hon 1 van ban -
