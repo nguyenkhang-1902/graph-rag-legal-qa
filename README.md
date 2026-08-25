@@ -91,11 +91,11 @@ python -m scripts.eval_bhxh_qa           # QA accuracy (Đúng/Sai, trắc nghi�
 - `docs/design/` — thiết kế & kế hoạch
 
 ## 🚧 Lộ trình
+Chi tiết định hướng phát triển: **[ROADMAP.md](ROADMAP.md)**.
 - [x] Nền dữ liệu BHXH temporal-first + retrieval + QA có trích dẫn
 - [x] Reranker + guardrail chống bịa + bộ eval QA kiểu ALQAC
+- [ ] Validate kiến trúc (dense-only vs có-graph)
 - [ ] Mở rộng corpus sang **lao động – tiền lương**
-- [ ] Cập nhật luật tự động
-- [ ] Cross-doc multi-hop (Nghị định → Luật theo tên)
-- [ ] Giao diện + cảnh báo pháp lý
+- [ ] Cập nhật luật tự động → Cross-doc multi-hop → Giao diện + cảnh báo pháp lý
 
 > ⚠️ Đây là công cụ tham khảo, **không thay thế tư vấn pháp lý chính thức**. Luôn kiểm chứng với nguồn gốc tại [vbpl.vn](https://vbpl.vn).
