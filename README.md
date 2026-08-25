@@ -1,6 +1,6 @@
-# Graph RAG — Hỏi đáp Bảo hiểm xã hội cho người lao động
+# Graph RAG — Hỏi đáp pháp luật lao động cho người lao động
 
-Hệ hỏi–đáp pháp luật **Bảo hiểm xã hội (BHXH)** tiếng Việt trên nền **Graph RAG**: hỏi bằng ngôn ngữ đời thường → truy xuất đúng Điều/Khoản luật **hiện hành** → trả lời có **trích dẫn** để kiểm chứng.
+Hệ hỏi–đáp pháp luật **lao động – tiền lương – bảo hiểm xã hội** tiếng Việt trên nền **Graph RAG**: hỏi bằng ngôn ngữ đời thường → truy xuất đúng Điều/Khoản luật **hiện hành** → trả lời có **trích dẫn** để kiểm chứng.
 
 > Trọng tâm: **luật hiện hành** (Luật BHXH 2024 số 41/2024/QH15, hiệu lực 01/7/2025) + các Nghị định/Thông tư 2025 hướng dẫn. Dữ liệu crawl từ CSDL quốc gia [vbpl.vn](https://vbpl.vn).
 
@@ -11,9 +11,9 @@ Hệ hỏi–đáp pháp luật **Bảo hiểm xã hội (BHXH)** tiếng Việt
 ### Dữ liệu (corpus)
 | Chỉ số | Giá trị |
 |---|---|
-| Văn bản | **16** (Luật BHXH 2024, Bộ luật Lao động 2019, Luật Việc làm, Luật ATVSLĐ, Luật BHYT + các NĐ/TT 2025) |
-| Điều | **839** |
-| Khoản | **2.314** |
+| Văn bản | **19** (Luật BHXH 2024, Bộ luật Lao động 2019 + NĐ 145/2020, lương tối thiểu vùng, Luật Việc làm, ATVSLĐ, BHYT, NLĐ nước ngoài + các NĐ/TT 2025) |
+| Điều | **995** |
+| Khoản | **3.193** |
 
 ### Truy xuất (retrieval) — bộ 30 câu, gold Điều xác minh từ tiêu đề
 | Chỉ số | Giá trị |
