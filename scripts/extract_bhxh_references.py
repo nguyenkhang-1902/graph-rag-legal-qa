@@ -38,6 +38,19 @@ from app.ingest import _all_articles
 
 DEFAULT_DATA_DIR = Path("data/raw/bhxh")
 
+# Alias {cum-ten-luat-lowercase: doc_id} de resolve trich dan CHEO theo TEN
+# (khong kem nam/so hieu) sang doc_id DUNG trong corpus - fix cross-doc
+# multi-hop (Nghi dinh trich "Luat Bao hiem xa hoi" theo ten). Cac ten nay
+# la van ban goc THUONG duoc trich chi bang ten trong corpus BHXH.
+BHXH_DOC_ALIASES: dict[str, str] = {
+    "luật bảo hiểm xã hội": "41-2024-qh15",
+    "bộ luật lao động": "45-2019-qh14",
+    "luật việc làm": "38-2013-qh13",
+    "luật an toàn, vệ sinh lao động": "84-2015-qh13",
+    "luật an toàn vệ sinh lao động": "84-2015-qh13",
+    "luật bảo hiểm y tế": "25-2008-qh12",
+}
+
 
 def _noidung_files(data_dir: str | Path) -> list[Path]:
     """Liet ke `data_dir/*.txt` LA noi_dung (khong phai sidecar thuoc_tinh
@@ -75,7 +88,9 @@ def extract_bhxh_references(paths: list[Path], client: Neo4jClient) -> int:
 
         for article in _all_articles(parsed):
             references = extract_references(
-                article.full_text, current_doc_slug=parsed.doc_id
+                article.full_text,
+                current_doc_slug=parsed.doc_id,
+                doc_aliases=BHXH_DOC_ALIASES,
             )
             upsert_references(client, article.article_id, references)
             total_references += len(references)

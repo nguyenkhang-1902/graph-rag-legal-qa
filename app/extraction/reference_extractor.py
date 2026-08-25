@@ -128,16 +128,32 @@ class ExtractedReference:
     raw_text: str
 
 
-def extract_references(text: str, current_doc_slug: str) -> list[ExtractedReference]:
+def extract_references(
+    text: str,
+    current_doc_slug: str,
+    doc_aliases: dict[str, str] | None = None,
+) -> list[ExtractedReference]:
     """Tim tat ca trich dan "Dieu {so}" trong `text`, theo thu tu xuat hien.
 
     `current_doc_slug` la slug cua van ban chua `text` - dung lam
     doc_slug khi trich dan khong neu ten van ban khac (tu trich dan / self
     reference, vd "...duoc quy dinh tai Dieu 10...").
 
+    `doc_aliases` (tuy chon): map {cum-ten-luat-lowercase: doc_id} de resolve
+    trich dan CHEO theo TEN (khong kem nam/so hieu), vd "Dieu 70 cua Luat Bao
+    hiem xa hoi" -> `_DOC_NAME_PATTERN` KHONG khop (thieu nam) -> mac dinh roi
+    vao `current_doc_slug` (gan NHAM cho van ban hien tai). Khi co alias, quet
+    cua so ngay sau "Dieu N" tim ten luat da biet -> map sang doc_id DUNG.
+    Day la fix cross-doc multi-hop (Nghi dinh -> Luat theo ten).
+
     Tra ve list rong (khong phai None, khong raise) khi khong co trich dan
     nao.
     """
+    # Sap alias theo do dai giam dan: khop cum dai truoc (vd "luat an toan,
+    # ve sinh lao dong" truoc "luat...") de tranh khop nham cum ngan.
+    alias_items = sorted(
+        (doc_aliases or {}).items(), key=lambda kv: len(kv[0]), reverse=True
+    )
     references: list[ExtractedReference] = []
     for match in _CITATION_RE.finditer(text):
         article_num = match.group("article_num")
@@ -156,7 +172,16 @@ def extract_references(text: str, current_doc_slug: str) -> list[ExtractedRefere
             # Nhanh (2) - chi ten + nam: giu nguyen slug ca cum ten.
             doc_slug = slugify_doc_name(doc_name)
         else:
+            # Nhanh (3) - trich dan khong kem nam/so hieu. Mac dinh la self-ref
+            # (current_doc_slug), NHUNG neu ngay sau "Dieu N" co ten luat da
+            # biet -> do la trich dan CHEO -> map sang doc_id dung (alias).
             doc_slug = current_doc_slug
+            if alias_items:
+                window = text[match.end(): match.end() + 60].lower()
+                for phrase, target_doc_id in alias_items:
+                    if phrase in window:
+                        doc_slug = target_doc_id
+                        break
         # Chuan hoa so Dieu qua int() (bo leading zero, vd "05" -> "5") de
         # dong bo CHINH XAC voi cach structure_parser.py xay dung article_id
         # (T008 - quyet dinh khong zero-pad). Neu khong, mot trich dan viet

@@ -300,3 +300,38 @@ def test_lowercase_dieu_in_everyday_sense_does_not_match():
     refs = extract_references(text, current_doc_slug="luat-xyz")
 
     assert refs == []
+
+
+# --- doc_aliases: resolve cross-doc theo TEN (khong nam/so hieu) -----------
+
+def test_alias_resolves_cross_doc_by_name():
+    from app.extraction.reference_extractor import extract_references
+    aliases = {"bộ luật lao động": "45-2019-qh14", "luật bảo hiểm xã hội": "41-2024-qh15"}
+    refs = extract_references(
+        "Thực hiện theo khoản 1 Điều 139 của Bộ luật Lao động.",
+        current_doc_slug="41-2024-qh15",
+        doc_aliases=aliases,
+    )
+    assert [r.target_article_id for r in refs] == ["45-2019-qh14_dieu-139"]
+
+
+def test_alias_self_reference_stays_current_doc():
+    from app.extraction.reference_extractor import extract_references
+    aliases = {"luật bảo hiểm xã hội": "41-2024-qh15"}
+    refs = extract_references(
+        "được quy định tại Điều 23 của Luật này",
+        current_doc_slug="158-2025-nd-cp",
+        doc_aliases=aliases,
+    )
+    assert [r.target_article_id for r in refs] == ["158-2025-nd-cp_dieu-23"]
+
+
+def test_alias_ignored_when_so_hieu_present():
+    from app.extraction.reference_extractor import extract_references
+    aliases = {"luật bảo hiểm xã hội": "41-2024-qh15"}
+    refs = extract_references(
+        "theo Điều 70 của Luật Bảo hiểm xã hội số 41/2024/QH15",
+        current_doc_slug="158-2025-nd-cp",
+        doc_aliases=aliases,
+    )
+    assert [r.target_article_id for r in refs] == ["41-2024-qh15_dieu-70"]
