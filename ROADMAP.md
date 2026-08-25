@@ -28,9 +28,9 @@ Nguyên tắc xuyên suốt:
 - [x] Reranker + 3 lớp guardrail chống bịa
 - [x] Bộ eval retrieval + QA kiểu ALQAC (92 câu) + đo guardrail
 
-### 🔬 Giai đoạn 0.5 — Validate kiến trúc (đang làm)
-- [ ] **Ablation dense-only vs có-graph**: graph (traversal/multi-hop) có thật sự thêm giá trị? → quyết định giữ hay đơn giản hóa trước khi scale
-- [ ] Nếu giữ graph: củng cố cross-doc reference (Nghị định → Luật theo tên)
+### ✅ Giai đoạn 0.5 — Validate kiến trúc (xong)
+- [x] **Cross-doc name-alias**: trích "Điều X của Luật BHXH" (không kèm năm) trước đây bị gán nhầm cho văn bản hiện tại → thêm `doc_aliases` map tên luật → doc_id. Cross-doc NĐ→Luật resolve: **1 → 171 cạnh**.
+- [x] **Ablation dense-only vs có-graph**: graph **thêm giá trị thật ở multi-hop** — recall@10 (câu multi-hop) **57% → 71%** khi bật graph; MRR 0.41 → 0.51 khi thêm reranker. → **Giữ graph** (xứng đáng, nhất là khi corpus nhiều tham chiếu chéo hơn).
 
 ### 🎯 Giai đoạn 1 — Mở rộng domain: lao động – tiền lương
 - [ ] Thêm văn bản lõi: NĐ 145/2020 (hướng dẫn Bộ luật Lao động), NĐ lương tối thiểu vùng, Luật Công đoàn, thời giờ làm việc, kỷ luật lao động…

@@ -32,7 +32,17 @@ Hệ hỏi–đáp pháp luật **Bảo hiểm xã hội (BHXH)** tiếng Việt
 | Truy xuất đúng gold (in-scope) | 93.5% |
 | **TỔNG accuracy** | **89.1%** (82/92) |
 
-*Model: `qwen2.5:7b-instruct` (Ollama) + cross-encoder reranker. Test suite: **417 pass**.*
+*Model: `qwen2.5:7b-instruct` (Ollama) + cross-encoder reranker.*
+
+### Ablation — graph có đáng giá không? (đo được, không cảm tính)
+Câu hỏi **multi-hop** (cần ≥2 Điều, vd Luật + Nghị định), recall@10:
+| Cấu hình | recall@10 (multi-hop) |
+|---|---|
+| dense-only | 57.1% |
+| **dense + graph** | **71.4%** |
+| dense + graph + reranker | 71.4% (recall@5 lên 71.4%, MRR 0.41→0.51) |
+
+→ **Graph thêm +14 điểm recall ở multi-hop** sau khi fix cross-doc name-alias (NĐ→Luật resolve: 1 → 171 cạnh). Kết luận: **giữ graph**.
 
 > **Trung thực về giới hạn:** con số trên là bộ eval **92 câu curated** — đủ để chứng minh POC, chưa phải chỉ số production (cần bộ lớn/đa dạng hơn để khoảng tin cậy hẹp). 5 lỗi tự luận còn lại là LLM 7b viện dẫn văn bản ngoài corpus — đã được **guardrail hậu xử lý gắn cảnh báo** thay vì để trót lọt.
 
