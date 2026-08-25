@@ -78,21 +78,21 @@ Câu hỏi → [Embed truy vấn bge-m3] → [Entry point: ChromaDB dense search
 docker compose up -d neo4j        # Neo4j
 # đảm bảo Ollama đang chạy (ollama serve) + đã pull qwen2.5:7b-instruct
 
-# 1) Crawl + ingest corpus BHXH vào Neo4j (Playwright)
-python -m scripts.fetch_bhxh_corpus
+# 1) Xây toàn bộ corpus bằng MỘT lệnh (idempotent + tự kiểm chứng):
+#    wipe → ingest → embed → references → reconcile (Chroma == Article thật)
+python -m scripts.build_corpus              # rebuild từ .txt đã có
+python -m scripts.build_corpus --refresh    # crawl lại từ vbpl.vn (~10 phút)
 
-# 2) Embed vào ChromaDB + trích dẫn chéo (multi-hop)
-python -m scripts.fetch_bhxh_corpus --out-dir data/raw/bhxh
-python -m scripts.embed_bhxh
-python -m scripts.extract_bhxh_references
-
-# 3) Demo hỏi-đáp
+# 2) Demo hỏi-đáp
 python -m scripts.smoke_bhxh_chat
 
-# 4) Đánh giá
+# 3) Đánh giá
 python -m scripts.eval_bhxh_retrieval    # retrieval recall@k
 python -m scripts.eval_bhxh_qa           # QA accuracy (Đúng/Sai, trắc nghiệm, tự luận, guardrail)
+python -m scripts.eval_bhxh_ablation     # dense-only vs có-graph
 ```
+
+> Toàn bộ pipeline gói trong `scripts/build_corpus.py` — chạy lại luôn cho ra cùng trạng thái sạch, tự fail nếu Chroma và Neo4j lệch nhau.
 
 ## 📁 Cấu trúc
 - `app/` — engine (extraction, graph_store, retrieval, reranker, serving) — domain-agnostic

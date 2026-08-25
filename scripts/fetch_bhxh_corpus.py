@@ -128,10 +128,6 @@ BHXH_CORPUS_URLS: list[dict] = [
         "che_do": ["huu_tri"],  # ND 75/2024 dieu chinh luong huu
     },
     {
-        "url": _B + "nghi-dinh-so-76-2024-nd-cp-sua-doi-bo-sung-mot-so-dieu-cua-nghi-dinh-so-20-2021-nd-cp-ngay-15-thang-3-nam-2021-cua-chinh-phu-quy-dinh-chinh-sach-tro-giup-xa-hoi-doi-voi-doi-tuong-bao-tro-xa-hoi--173641",
-        "che_do": ["huu_tri"],  # ND 76/2024 tro giup xa hoi (huu tri xa hoi)
-    },
-    {
         "url": _B + "thong-tu-so-20-2023-tt-bldtbxh-quy-dinh-muc-dieu-chinh-tien-luong-va-thu-nhap-thang-da-dong-bao-hiem-xa-hoi--167036",
         "che_do": ["huu_tri", "mot_lan"],  # TT 20/2023 dieu chinh tien luong dong BHXH
     },
