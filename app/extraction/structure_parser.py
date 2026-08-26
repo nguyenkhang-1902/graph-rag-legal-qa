@@ -63,6 +63,16 @@ _ARTICLE_RE = re.compile(r"^Điều\s+(\d+)\.\s*(.*)$")
 # _extract_clauses, dung nguyen dong tho de ep cot 0).
 _CLAUSE_RE = re.compile(r"^(\d+)\.\s+(.*)$")
 
+# Ranh gioi PHU LUC (standalone heading "Phu luc I"/"PHU LUC 1"). Trong
+# VBQPPL Viet Nam, Phu luc LUON o CUOI, sau moi Dieu - noi dung sau day la
+# mau/bieu/danh muc, KHONG phai Dieu luat. Bat buoc match CA DONG (strict)
+# de khong nham voi tham chieu inline giua cau ("...theo Mau so 04/PLIII
+# Phu luc III ban hanh kem..."). Vi sao can: mau HDLD trong phu luc cua ND
+# 145/2020 co "Dieu 1..11" rieng (dieu khoan hop dong mau) nam SAU 115 Dieu
+# that -> MERGE last-write-wins GHI DE Dieu 1..11 THAT (mat "Pham vi dieu
+# chinh"). Dung parse tai day khoi phuc Dieu that + loai nhieu template.
+_APPENDIX_RE = re.compile(r"^Phụ lục\s+([IVXLCDM]+|\d+)\s*$", re.IGNORECASE)
+
 _PREVIEW_MAX_CHARS = 200
 
 _ROMAN_VALUES = {"I": 1, "V": 5, "X": 10, "L": 50, "C": 100, "D": 500, "M": 1000}
@@ -298,6 +308,12 @@ def parse_document(text: str, fallback_doc_id: str = "") -> ParsedDocument:
     i = 0
     while i < n:
         stripped = lines[i].strip()
+
+        # Vao PHU LUC (o cuoi van ban) -> dong Dieu dang mo va DUNG parse:
+        # phan con lai la mau/bieu, khong phai Dieu luat (xem _APPENDIX_RE).
+        if stripped and _APPENDIX_RE.match(stripped):
+            close_pending_article()
+            break
 
         chapter_match = _CHAPTER_RE.match(stripped) if stripped else None
         if chapter_match:

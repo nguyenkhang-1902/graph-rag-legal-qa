@@ -542,3 +542,61 @@ def test_parse_article_chunk_heading_without_markdown_hash_prefix():
     assert dieu.so_dieu == 3
     assert dieu.article_id == "doc-no-hash_dieu-3"
     assert "Không có dấu thăng đầu dòng" in dieu.full_text
+
+
+# --- Case: ranh gioi PHU LUC - "Dieu N" trong mau/bieu KHONG thanh Dieu ---
+
+
+_DOC_WITH_APPENDIX = """# Nghị định mẫu
+
+Điều 1. Phạm vi điều chỉnh
+
+Nghị định này quy định abc.
+
+Điều 2. Đối tượng áp dụng
+
+Áp dụng cho xyz.
+
+Phụ lục I
+
+MẪU HỢP ĐỒNG LAO ĐỘNG
+
+Hai bên thống nhất ký kết hợp đồng lao động với những điều khoản sau đây:
+
+Điều 1. Thời hạn hợp đồng
+
+Loại hợp đồng: ....
+
+Điều 2. Tiền lương
+
+Mức lương: ....
+"""
+
+
+def test_appendix_articles_not_parsed_as_document_articles():
+    # Regression (bug ND 145/2020): mau HDLD trong Phu luc co "Dieu 1..N"
+    # rieng nam SAU cac Dieu that -> truoc day GHI DE Dieu that. Sau fix:
+    # gap standalone "Phu luc N" thi DUNG parse.
+    parsed = parse_document(_DOC_WITH_APPENDIX)
+
+    arts = parsed.articles + [a for ch in parsed.chapters for a in ch.articles]
+    assert len(arts) == 2, "chi 2 Dieu THAT, khong tinh Dieu trong phu luc"
+    by_no = {a.so_dieu: a for a in arts}
+    # Dieu 1 THAT = "Pham vi dieu chinh", KHONG bi mau HDLD "Thoi han hop dong" de len.
+    assert "Phạm vi điều chỉnh" in by_no[1].noi_dung_preview
+    assert "Thời hạn hợp đồng" not in by_no[1].noi_dung_preview
+    assert "Đối tượng áp dụng" in by_no[2].noi_dung_preview
+
+
+def test_inline_appendix_reference_not_treated_as_boundary():
+    # Tham chieu inline "...Phu luc III ban hanh kem..." GIUA cau KHONG duoc
+    # coi la ranh gioi phu luc (chi standalone ca dong moi tinh).
+    text = (
+        "# Nghị định mẫu\n\n"
+        "Điều 1. Cấp phép\n\n"
+        "Hồ sơ theo Mẫu số 04 Phụ lục III ban hành kèm theo Nghị định này.\n\n"
+        "Điều 2. Hiệu lực\n\nCó hiệu lực từ 2025.\n"
+    )
+    parsed = parse_document(text)
+    arts = parsed.articles + [a for ch in parsed.chapters for a in ch.articles]
+    assert len(arts) == 2, "tham chieu Phu luc inline khong duoc cat Dieu 2"
