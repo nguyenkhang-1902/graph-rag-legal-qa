@@ -94,12 +94,15 @@ python -m scripts.eval_bhxh_ablation     # dense-only vs có-graph
 
 > Toàn bộ pipeline gói trong `scripts/build_corpus.py` — chạy lại luôn cho ra cùng trạng thái sạch, tự fail nếu Chroma và Neo4j lệch nhau.
 
-### Tìm văn bản mới (discovery — nền cho cập nhật luật tự động)
+### Discovery & cập nhật luật (nền Giai đoạn 2)
 ```bash
-# Nhập số hiệu (hoặc từ khóa) → liệt kê ứng viên URL + trạng thái hiệu lực để DUYỆT
-python -m scripts.discover_vbpl "145/2020/NĐ-CP"
+# a) Tìm văn bản: nhập số hiệu (hoặc từ khóa) → ứng viên URL + trạng thái để DUYỆT
+python -m scripts.discover_vbpl "145/2020/NĐ-CP"     # tự tìm theo "Số hiệu" nếu là mã VB
+
+# b) Kiểm tra corpus còn hiệu lực không → phát hiện văn bản đã bị thay thế
+python -m scripts.check_corpus_freshness             # soát 19 VB trên vbpl.vn
 ```
-> Resolver số hiệu → URL chi tiết vbpl.vn (human-in-the-loop, không tự ingest). Kèm `trạng_thái` (Còn/Hết hiệu lực) — tín hiệu để phát hiện văn bản bị thay thế. Crawler có retry cho lỗi tạm thời + bỏ nhanh trang "không tồn tại".
+> `discover_vbpl`: resolver số hiệu → URL chi tiết vbpl.vn (human-in-the-loop, không tự ingest). `check_corpus_freshness`: soát từng văn bản trong corpus, đối chiếu `trạng_thái` LIVE trên vbpl.vn → cảnh báo văn bản **Hết hiệu lực toàn bộ/một phần**. Crawler có retry cho lỗi tạm thời + bỏ nhanh trang "không tồn tại".
 
 ## 📁 Cấu trúc
 - `app/` — engine (extraction, graph_store, retrieval, reranker, serving) — domain-agnostic

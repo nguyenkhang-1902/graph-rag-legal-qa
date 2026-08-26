@@ -30,3 +30,12 @@ def test_discover_vbpl_imports():
     import scripts.discover_vbpl as dv
 
     assert hasattr(dv, "search_vbpl") and hasattr(dv, "main")
+
+
+def test_looks_like_so_hieu():
+    from scripts.discover_vbpl import looks_like_so_hieu
+    assert looks_like_so_hieu("145/2020/NĐ-CP")
+    assert looks_like_so_hieu("41/2024/QH15")
+    assert looks_like_so_hieu("60/2025/TT-BYT")
+    assert not looks_like_so_hieu("lương tối thiểu vùng")
+    assert not looks_like_so_hieu("Nghị định 145")

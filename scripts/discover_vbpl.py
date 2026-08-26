@@ -39,7 +39,20 @@ _RESULT_ITEM = "li.ant-list-item"
 _RESULT_TITLE = "[class*='documentTitle']"
 _RESULT_CLICKABLE = "span.cursor-pointer"
 
+# Radio "Tim trong" tren trang chu (input[name='searchIn']): mac dinh
+# "title" (Tieu de). "number" (So hieu) -> tim CHINH XAC theo ma van ban
+# (it ket qua nhieu, khong lan van ban dan chieu). "content" (Noi dung) ->
+# full-text. Dung "number" khi tra cuu theo so hieu (vd freshness check).
+_SEARCH_IN_VALUES = {"title", "number", "content"}
+
 _DATE = r"(\d{2}/\d{2}/\d{4})"
+# So hieu VBQPPL: "145/2020/NĐ-CP", "41/2024/QH15", "60/2025/TT-BYT"...
+_SO_HIEU_RE = re.compile(r"^\d+/\d{4}/[A-Za-z0-9Đđ-]+$")  # ma_hieu co the co so: QH15
+
+
+def looks_like_so_hieu(keyword: str) -> bool:
+    """True neu keyword co dang so hieu VBQPPL (dung tim theo 'number')."""
+    return bool(_SO_HIEU_RE.match(keyword.strip()))
 
 
 def parse_result_meta(item_text: str) -> dict[str, str | None]:
@@ -64,17 +77,23 @@ def search_vbpl(
     keyword: str,
     *,
     max_results: int = 5,
+    search_in: str = "title",
     headless: bool = True,
     nav_timeout_ms: int = 15000,
 ) -> list[dict]:
     """Search `keyword` tren vbpl.vn, tra ve toi da `max_results` ung vien
     {url, title, trang_thai, ngay_ban_hanh, ngay_hieu_luc}.
 
+    `search_in`: "title" (mac dinh) | "number" (theo so hieu - chinh xac) |
+    "content" (full-text). Xem `_SEARCH_IN_VALUES`.
+
     Lay `url` bang cach CLICK tieu de tung ket qua va bat tab moi (xem
     docstring module). Ket qua khong click duoc/timeout -> bo qua ket qua do
     (van tra ve nhung ket qua lay duoc), khong lam gay ca lan search.
     """
     keyword = keyword.strip()
+    if search_in not in _SEARCH_IN_VALUES:
+        raise ValueError(f"search_in phai thuoc {_SEARCH_IN_VALUES}, nhan {search_in!r}")
     results: list[dict] = []
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=headless)
@@ -82,6 +101,9 @@ def search_vbpl(
         page = ctx.new_page()
         page.goto(_HOME, wait_until="load", timeout=40000)
         page.wait_for_timeout(2000)
+
+        if search_in != "title":  # "title" la mac dinh, khong can doi
+            page.check(f"input[name='searchIn'][value='{search_in}']")
 
         box = page.get_by_placeholder(_SEARCH_BOX_PLACEHOLDER)
         box.fill(keyword)
@@ -126,11 +148,18 @@ def main() -> None:
     )
     parser.add_argument("keyword", help="So hieu (vd '145/2020/ND-CP') hoac tu khoa.")
     parser.add_argument("--max", type=int, default=5, help="So ket qua toi da (mac dinh 5).")
+    parser.add_argument(
+        "--by", choices=sorted(_SEARCH_IN_VALUES), default=None,
+        help="Tim theo: title|number|content. Mac dinh: tu dong 'number' neu la so hieu.",
+    )
     parser.add_argument("--headed", action="store_true", help="Hien trinh duyet (debug).")
     args = parser.parse_args()
 
-    print(f"[discover] tim: {args.keyword!r} ...")
-    hits = search_vbpl(args.keyword, max_results=args.max, headless=not args.headed)
+    search_in = args.by or ("number" if looks_like_so_hieu(args.keyword) else "title")
+    print(f"[discover] tim: {args.keyword!r} (theo {search_in}) ...")
+    hits = search_vbpl(
+        args.keyword, max_results=args.max, search_in=search_in, headless=not args.headed
+    )
     if not hits:
         print("[discover] KHONG co ket qua (hoac search timeout). Thu tu khoa khac.")
         return
