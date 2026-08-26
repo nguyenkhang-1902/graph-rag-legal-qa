@@ -22,17 +22,17 @@ Hệ hỏi–đáp pháp luật **lao động – tiền lương – bảo hiể
 | recall@10 | 100% |
 | MRR | 0.889 |
 
-### Chất lượng câu trả lời (QA kiểu ALQAC) — bộ 92 câu
+### Chất lượng câu trả lời (QA kiểu ALQAC) — bộ 110 câu
 | Loại | Accuracy |
 |---|---|
-| Đúng/Sai (25 câu) | **100%** |
-| Trắc nghiệm A/B/C/D (23 câu) | 82.6% |
-| Tự luận – key facts (29 câu) | 79.3% |
+| Đúng/Sai (31 câu) | **100%** |
+| Trắc nghiệm A/B/C/D (29 câu) | 86.2% |
+| Tự luận – key facts (35 câu) | 77.1% |
 | **Ngoài phạm vi – từ chối đúng (15 câu)** | **100%** |
-| Truy xuất đúng gold (in-scope) | 93.5% |
-| **TỔNG accuracy** | **89.1%** (82/92) |
+| Truy xuất đúng gold (in-scope) | 94.7% |
+| **TỔNG accuracy** | **89.1%** (98/110) |
 
-*Model: `qwen2.5:7b-instruct` (Ollama) + cross-encoder reranker.*
+*Model: `qwen2.5:7b-instruct` (Ollama) + cross-encoder reranker. Bộ 110 câu gồm 18 câu **lao động – tiền lương** (lương tối thiểu vùng, hợp đồng lao động, làm thêm giờ, giấy phép lao động nước ngoài); mở rộng eval **không làm giảm** tổng accuracy (reranker nâng 87.3% → 89.1%).*
 
 ### Ablation — graph có đáng giá không? (đo được, không cảm tính)
 Câu hỏi **multi-hop** (cần ≥2 Điều, vd Luật + Nghị định), recall@10:
@@ -44,7 +44,7 @@ Câu hỏi **multi-hop** (cần ≥2 Điều, vd Luật + Nghị định), recal
 
 → **Graph thêm +14 điểm recall ở multi-hop** sau khi fix cross-doc name-alias (NĐ→Luật resolve: 1 → 171 cạnh). Kết luận: **giữ graph**.
 
-> **Trung thực về giới hạn:** con số trên là bộ eval **92 câu curated** — đủ để chứng minh POC, chưa phải chỉ số production (cần bộ lớn/đa dạng hơn để khoảng tin cậy hẹp). 5 lỗi tự luận còn lại là LLM 7b viện dẫn văn bản ngoài corpus — đã được **guardrail hậu xử lý gắn cảnh báo** thay vì để trót lọt.
+> **Trung thực về giới hạn:** con số trên là bộ eval **110 câu curated** — đủ để chứng minh POC, chưa phải chỉ số production (cần bộ lớn/đa dạng hơn để khoảng tin cậy hẹp). Phần lớn lỗi còn lại là LLM 7b **trích sai số cụ thể** ở câu trắc nghiệm hoặc **viện dẫn văn bản ngoài corpus** ở câu tự luận — loại sau đã được **guardrail hậu xử lý gắn cảnh báo** thay vì để trót lọt. Đây là trần năng lực của 7b (hướng cải thiện: model mạnh hơn — xem ROADMAP GĐ4), không phải lỗi kiến trúc.
 
 ---
 
@@ -94,18 +94,26 @@ python -m scripts.eval_bhxh_ablation     # dense-only vs có-graph
 
 > Toàn bộ pipeline gói trong `scripts/build_corpus.py` — chạy lại luôn cho ra cùng trạng thái sạch, tự fail nếu Chroma và Neo4j lệch nhau.
 
+### Tìm văn bản mới (discovery — nền cho cập nhật luật tự động)
+```bash
+# Nhập số hiệu (hoặc từ khóa) → liệt kê ứng viên URL + trạng thái hiệu lực để DUYỆT
+python -m scripts.discover_vbpl "145/2020/NĐ-CP"
+```
+> Resolver số hiệu → URL chi tiết vbpl.vn (human-in-the-loop, không tự ingest). Kèm `trạng_thái` (Còn/Hết hiệu lực) — tín hiệu để phát hiện văn bản bị thay thế. Crawler có retry cho lỗi tạm thời + bỏ nhanh trang "không tồn tại".
+
 ## 📁 Cấu trúc
 - `app/` — engine (extraction, graph_store, retrieval, reranker, serving) — domain-agnostic
 - `scripts/` — crawler, embed, references, eval
-- `data/eval/` — bộ eval retrieval (30 câu) + QA (92 câu), gold verified
+- `data/eval/` — bộ eval retrieval (30 câu) + QA (110 câu, gồm 18 câu lao động–tiền lương), gold verified
 - `docs/design/` — thiết kế & kế hoạch
 
 ## 🚧 Lộ trình
 Chi tiết định hướng phát triển: **[ROADMAP.md](ROADMAP.md)**.
 - [x] Nền dữ liệu BHXH temporal-first + retrieval + QA có trích dẫn
 - [x] Reranker + guardrail chống bịa + bộ eval QA kiểu ALQAC
-- [ ] Validate kiến trúc (dense-only vs có-graph)
-- [ ] Mở rộng corpus sang **lao động – tiền lương**
+- [x] Validate kiến trúc (dense-only vs có-graph) — graph +14đ recall multi-hop
+- [x] Mở rộng corpus sang **lao động – tiền lương** (19 văn bản) + eval 110 câu
+- [x] Nền discovery tìm văn bản mới (resolver số hiệu → URL)
 - [ ] Cập nhật luật tự động → Cross-doc multi-hop → Giao diện + cảnh báo pháp lý
 
 > ⚠️ Đây là công cụ tham khảo, **không thay thế tư vấn pháp lý chính thức**. Luôn kiểm chứng với nguồn gốc tại [vbpl.vn](https://vbpl.vn).

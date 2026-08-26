@@ -38,6 +38,7 @@ import dataclasses
 import time
 from pathlib import Path
 
+from playwright.sync_api import TimeoutError as PWTimeout
 from playwright.sync_api import sync_playwright
 
 from app.extraction.doc_identity import build_doc_identity
@@ -49,6 +50,32 @@ _UA = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 )
+
+# Nguong do dai body de phan biet trang THAT vs shell "khong ton tai": trang
+# chi tiet that render >6000 ky tu (xem wait_for_function); trang loi/khong
+# ton tai chi ~200-600 ky tu. Kiem TRUOC khi cho render de fail NHANH (khong
+# doi het 40s timeout cho van ban vinh vien khong ton tai).
+_MIN_CONTENT_LEN = 6000
+_NOT_FOUND_MARKERS = ("không tồn tại", "not found", "không có nội dung")
+
+
+class VbplFetchError(Exception):
+    """Loi fetch van ban vbpl.vn (base)."""
+
+
+class VbplNotFoundError(VbplFetchError):
+    """Trang tra ve shell 'Van ban khong ton tai' - VINH VIEN, khong retry
+    (vd URL sai/uuid het han). Phan biet voi loi TAM THOI (mang/render cham)
+    de build --refresh khong phi thoi gian retry cai khong bao gio co."""
+
+
+def _is_not_found_shell(body_text: str) -> bool:
+    """True neu `body_text` la shell trang loi/'khong ton tai' (ngan VA co
+    marker loi) - phan biet voi trang van ban that (dai). Ham THUAN -> test
+    offline duoc."""
+    return len(body_text) < _MIN_CONTENT_LEN and any(
+        m in body_text.lower() for m in _NOT_FOUND_MARKERS
+    )
 
 # Danh sach van ban nguon BHXH can ingest cho P1 (dien tu Task 1 spike).
 #
@@ -208,8 +235,46 @@ def fetch_vbpl_noidung(url: str) -> str:
     return fetch_vbpl_document(url)[0]
 
 
-def fetch_vbpl_document(url: str) -> tuple[str, str]:
-    """Fetch (noi_dung_text, thuoc_tinh_text) cua mot van ban vbpl.vn.
+def _fetch_once(url: str) -> tuple[str, str]:
+    """Mot lan fetch (noi_dung_text, thuoc_tinh_text). Raise
+    `VbplNotFoundError` neu trang la shell 'khong ton tai' (vinh vien);
+    de PWTimeout thoat ra neu render cham (tam thoi - caller se retry)."""
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        page = browser.new_context(user_agent=_UA, locale="vi-VN").new_page()
+        try:
+            page.goto(url, wait_until="load", timeout=60000)
+            # Kiem NHANH truoc: trang "khong ton tai" (~200-600 ky tu) -> fail
+            # ngay, KHONG doi 40s render cho van ban vinh vien khong co.
+            page.wait_for_timeout(800)
+            if _is_not_found_shell(page.inner_text("body")):
+                raise VbplNotFoundError(f"Trang bao khong ton tai: {url}")
+            # Cho render xong: body chua "Điều 1" (moi van ban luat deu co) VA
+            # du dai (phan biet voi shell). Robust hon "Phạm vi điều chỉnh".
+            page.wait_for_function(
+                "() => document.body.innerText.includes('Điều 1') "
+                f"&& document.body.innerText.length > {_MIN_CONTENT_LEN}",
+                timeout=40000,
+            )
+            noi_dung = _strip_page_chrome(page.inner_text("body"))
+            thuoc_tinh = ""
+            try:
+                page.get_by_role("tab", name="Thuộc tính").click(timeout=8000)
+                page.wait_for_timeout(1500)
+                thuoc_tinh = page.inner_text("body")
+            except Exception:  # noqa: BLE001 - thieu thuoc tinh chi giam metadata
+                pass
+            return noi_dung, thuoc_tinh
+        finally:
+            browser.close()
+
+
+def fetch_vbpl_document(
+    url: str, *, retries: int = 2, backoff: float = 3.0
+) -> tuple[str, str]:
+    """Fetch (noi_dung_text, thuoc_tinh_text) cua mot van ban vbpl.vn, CO
+    retry cho loi TAM THOI (mang/render cham) va fail NHANH cho loi VINH
+    VIEN (trang khong ton tai).
 
     `noi_dung_text`: tab "Noi dung" (mac dinh khi load), da `_strip_page_chrome`.
     `thuoc_tinh_text`: text sau khi CLICK tab "Thuoc tinh" - bang metadata
@@ -218,30 +283,24 @@ def fetch_vbpl_document(url: str) -> tuple[str, str]:
     body chi lay duoc so hieu/ngay cua van ban DUOC DAN CHIEU o preamble
     ("Can cu Luat X so .../...") - SAI voi van ban khong phai Luat BHXH.
     `parse_vbpl_content` uu tien `thuoc_tinh_text` (xem vbpl_parser.py).
+
+    Retry: `retries` lan them (mac dinh 2 -> toi da 3 lan thu), gian cach
+    `backoff * so_lan_da_thu` giay (backoff tuyen tinh). KHONG retry
+    `VbplNotFoundError` (vinh vien). Het luot -> raise `VbplFetchError`.
     """
-    with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
-        page = browser.new_context(user_agent=_UA, locale="vi-VN").new_page()
-        page.goto(url, wait_until="load", timeout=60000)
-        # Cho render xong: body chua "Điều 1" (moi van ban luat deu co) VA du
-        # dai (>6000 ky tu) de phan biet voi shell/trang "khong ton tai"
-        # (~200-600 ky tu). Robust hon "Phạm vi điều chỉnh" (khong phai N-D/
-        # T-T nao cung co dung cum do o Dieu 1).
-        page.wait_for_function(
-            "() => document.body.innerText.includes('Điều 1') "
-            "&& document.body.innerText.length > 6000",
-            timeout=40000,
-        )
-        noi_dung = _strip_page_chrome(page.inner_text("body"))
-        thuoc_tinh = ""
+    last_exc: Exception | None = None
+    for attempt in range(retries + 1):
         try:
-            page.get_by_role("tab", name="Thuộc tính").click(timeout=8000)
-            page.wait_for_timeout(1500)
-            thuoc_tinh = page.inner_text("body")
-        except Exception:  # noqa: BLE001 - thieu thuoc tinh chi lam giam metadata
-            pass
-        browser.close()
-        return noi_dung, thuoc_tinh
+            return _fetch_once(url)
+        except VbplNotFoundError:
+            raise  # vinh vien - khong retry
+        except PWTimeout as exc:  # render/mang cham -> tam thoi, retry
+            last_exc = exc
+            if attempt < retries:
+                time.sleep(backoff * (attempt + 1))
+    raise VbplFetchError(
+        f"Fetch that bai sau {retries + 1} lan (render/mang cham): {url}"
+    ) from last_exc
 
 
 def _slug_from_url(url: str) -> str:

@@ -15,9 +15,9 @@ Nguyên tắc xuyên suốt:
 | | |
 |---|---|
 | Domain | BHXH (5 chế độ + thất nghiệp + TNLĐ-BNN + y tế liên quan) |
-| Corpus | 16 văn bản · 839 Điều · 2.314 Khoản — **luật hiện hành** |
+| Corpus | 19 văn bản · 995 Điều · 3.193 Khoản — **luật hiện hành** |
 | Retrieval | recall@5 = 100% (bộ 30 câu) |
-| QA (92 câu, kiểu ALQAC) | TỔNG 89.1% · Đúng/Sai 100% · guardrail out-of-scope 100% |
+| QA (110 câu, kiểu ALQAC) | TỔNG 89.1% · Đúng/Sai 100% · guardrail out-of-scope 100% (gồm 18 câu lao động–tiền lương) |
 | Engine | ChromaDB (bge-m3) + Neo4j + reranker (bge-reranker-v2-m3) + Ollama (qwen2.5:7b) |
 
 ## Lộ trình
@@ -33,12 +33,14 @@ Nguyên tắc xuyên suốt:
 - [x] **Ablation dense-only vs có-graph**: graph **thêm giá trị thật ở multi-hop** — recall@10 (câu multi-hop) **57% → 71%** khi bật graph; MRR 0.41 → 0.51 khi thêm reranker. → **Giữ graph** (xứng đáng, nhất là khi corpus nhiều tham chiếu chéo hơn).
 
 ### 🎯 Giai đoạn 1 — Mở rộng domain: lao động – tiền lương
-- [ ] Thêm văn bản lõi: NĐ 145/2020 (hướng dẫn Bộ luật Lao động), NĐ lương tối thiểu vùng, Luật Công đoàn, thời giờ làm việc, kỷ luật lao động…
-- [ ] Mở rộng bộ eval tương ứng (giữ chuẩn ALQAC)
+- [x] Thêm văn bản lõi: NĐ 145/2020 (hướng dẫn Bộ luật Lao động), NĐ 293/2025 (lương tối thiểu vùng), NĐ 219/2025 (NLĐ nước ngoài) → corpus 16 → **19 văn bản**
+- [x] Mở rộng bộ eval tương ứng (giữ chuẩn ALQAC): **+18 câu lao động–tiền lương** (92 → 110 câu) — TỔNG accuracy giữ **89.1%**
 - [ ] Nâng bộ QA lên quy mô ~200–500 câu để chỉ số đáng tin ở mức trình bày/công bố
+- [ ] **Known-issue:** NĐ 145/2020 `dieu-1..11` bị phụ lục "Mẫu HĐLĐ" ghi đè (structure parser bắt nhầm phụ lục là Điều) — cần lọc phụ lục "Mẫu số…"
 
 ### 🔄 Giai đoạn 2 — Cập nhật luật tự động
-- [ ] Cơ chế phát hiện văn bản mới/sửa đổi trên vbpl.vn
+- [x] **Nền discovery** (`scripts/discover_vbpl.py`): resolver số hiệu → URL chi tiết vbpl.vn, kèm `trạng_thái` hiệu lực — human-in-the-loop. Crawler thêm retry/backoff + bỏ nhanh trang "không tồn tại" (`fetch_bhxh_corpus.py`).
+- [ ] Cơ chế phát hiện văn bản mới/sửa đổi (dùng discovery so danh mục hiện có ↔ vbpl.vn)
 - [ ] Tự động crawl + ingest + đánh dấu `superseded` cho văn bản hết hiệu lực
 - [ ] Temporal Resolver: cảnh báo khi có chuyển tiếp luật
 
@@ -58,10 +60,11 @@ Nguyên tắc xuyên suốt:
 - **Guardrail hậu xử lý**: LLM 7b vẫn bịa dù prompt cấm → cần lớp deterministic ngoài LLM cho sản phẩm luật.
 
 ## Giới hạn đang có (trung thực)
-- Bộ eval 92 câu **curated** — đủ cho POC, chưa phải chỉ số production.
-- Corpus 16 văn bản — nặng về BHXH, chưa phủ hết lao động–tiền lương.
-- Cross-doc multi-hop còn yếu (trích theo tên chưa nối node).
-- LLM 7b thiên vị nội tại (đôi khi viện dẫn văn bản ngoài corpus — đã bị guardrail flag).
+- Bộ eval 110 câu **curated** — đủ cho POC, chưa phải chỉ số production.
+- Corpus 19 văn bản — đã có lõi lao động–tiền lương, chưa phủ hết (thiếu Luật Công đoàn, NĐ tuổi nghỉ hưu, thang bảng lương).
+- Discovery vbpl.vn: resolver số-hiệu→URL đã chạy, nhưng **tìm văn bản MỚI diện rộng** vẫn thủ công (search theo từ khóa, chưa quét danh mục tự động).
+- LLM 7b có trần năng lực: đôi khi **trích sai số** (trắc nghiệm) hoặc **viện dẫn văn bản ngoài corpus** (tự luận — đã bị guardrail flag).
+- NĐ 145/2020 `dieu-1..11` lẫn phụ lục "Mẫu HĐLĐ" (xem GĐ1 known-issue).
 
 ---
 *Tài liệu này cập nhật theo tiến độ. Thiết kế chi tiết ở [`docs/design/`](docs/design/).*

@@ -83,6 +83,27 @@
     {"type": "free_text", "question": "Con tôi 2 tuổi bị ốm, tôi có thể nghỉ chăm sóc con bao nhiêu ngày trong năm?", "key_facts": ["20 ngày"], "gold_article_ids": ["41-2024-qh15_dieu-44"]},
     {"type": "free_text", "question": "Tôi đang mang thai tháng thứ 8. Công ty có được yêu cầu tôi làm ca đêm không?", "key_facts": ["không"], "gold_article_ids": ["45-2019-qh14_dieu-137"]},
 
+    {"type": "true_false", "question": "Mức lương tối thiểu tháng vùng I theo Nghị định 293/2025 là 5.310.000 đồng.", "answer": "Đúng", "gold_article_ids": ["293-2025-nd-cp_dieu-3"]},
+    {"type": "true_false", "question": "Thời gian thử việc đối với công việc cần trình độ chuyên môn từ cao đẳng trở lên không được quá 60 ngày.", "answer": "Đúng", "gold_article_ids": ["45-2019-qh14_dieu-25"]},
+    {"type": "true_false", "question": "Người lao động làm thêm giờ vào ngày nghỉ lễ, tết được trả ít nhất bằng 200% đơn giá tiền lương.", "answer": "Sai", "gold_article_ids": ["45-2019-qh14_dieu-98"]},
+    {"type": "true_false", "question": "Thời giờ làm việc bình thường không quá 08 giờ trong 01 ngày và không quá 48 giờ trong 01 tuần.", "answer": "Đúng", "gold_article_ids": ["45-2019-qh14_dieu-105"]},
+    {"type": "true_false", "question": "Giấy phép lao động cấp cho người lao động nước ngoài có thời hạn tối đa là 03 năm.", "answer": "Sai", "gold_article_ids": ["219-2025-nd-cp_dieu-21"]},
+    {"type": "true_false", "question": "Người lao động làm việc thường xuyên từ đủ 12 tháng trở lên khi thôi việc được trợ cấp mỗi năm làm việc bằng một nửa tháng tiền lương.", "answer": "Đúng", "gold_article_ids": ["45-2019-qh14_dieu-46"]},
+
+    {"type": "multiple_choice", "question": "Mức lương tối thiểu tháng vùng I theo Nghị định 293/2025 là bao nhiêu?", "options": {"A": "3.700.000 đồng", "B": "4.140.000 đồng", "C": "4.730.000 đồng", "D": "5.310.000 đồng"}, "answer": "D", "gold_article_ids": ["293-2025-nd-cp_dieu-3"]},
+    {"type": "multiple_choice", "question": "Mức lương tối thiểu tháng vùng IV theo Nghị định 293/2025 là bao nhiêu?", "options": {"A": "3.700.000 đồng", "B": "4.140.000 đồng", "C": "4.730.000 đồng", "D": "5.310.000 đồng"}, "answer": "A", "gold_article_ids": ["293-2025-nd-cp_dieu-3"]},
+    {"type": "multiple_choice", "question": "Thời gian thử việc tối đa đối với công việc của người quản lý doanh nghiệp là bao nhiêu?", "options": {"A": "30 ngày", "B": "60 ngày", "C": "180 ngày", "D": "12 tháng"}, "answer": "C", "gold_article_ids": ["45-2019-qh14_dieu-25"]},
+    {"type": "multiple_choice", "question": "Người lao động làm thêm giờ vào ngày thường được trả lương ít nhất bằng bao nhiêu phần trăm đơn giá tiền lương?", "options": {"A": "100%", "B": "150%", "C": "200%", "D": "300%"}, "answer": "B", "gold_article_ids": ["45-2019-qh14_dieu-98"]},
+    {"type": "multiple_choice", "question": "Giấy phép lao động cấp cho người lao động nước ngoài có thời hạn tối đa là bao nhiêu?", "options": {"A": "12 tháng", "B": "02 năm", "C": "03 năm", "D": "05 năm"}, "answer": "B", "gold_article_ids": ["219-2025-nd-cp_dieu-21"]},
+    {"type": "multiple_choice", "question": "Số giờ làm thêm trong 01 ngày không được quá bao nhiêu phần trăm số giờ làm việc bình thường?", "options": {"A": "30%", "B": "50%", "C": "100%", "D": "200%"}, "answer": "B", "gold_article_ids": ["45-2019-qh14_dieu-107"]},
+
+    {"type": "free_text", "question": "Mức lương tối thiểu tháng vùng I hiện nay là bao nhiêu?", "key_facts": ["5.310.000"], "gold_article_ids": ["293-2025-nd-cp_dieu-3"]},
+    {"type": "free_text", "question": "Bộ luật Lao động quy định hợp đồng lao động gồm những loại nào?", "key_facts": ["không xác định thời hạn", "xác định thời hạn"], "gold_article_ids": ["45-2019-qh14_dieu-20"]},
+    {"type": "free_text", "question": "Người lao động làm thêm giờ vào ngày nghỉ lễ, tết được trả lương ít nhất bao nhiêu phần trăm?", "key_facts": ["300%"], "gold_article_ids": ["45-2019-qh14_dieu-98"]},
+    {"type": "free_text", "question": "Người lao động nước ngoài góp vốn từ bao nhiêu thì không thuộc diện cấp giấy phép lao động?", "key_facts": ["3 tỷ"], "gold_article_ids": ["219-2025-nd-cp_dieu-7"]},
+    {"type": "free_text", "question": "Trợ cấp thôi việc được tính như thế nào?", "key_facts": ["nửa tháng", "12 tháng"], "gold_article_ids": ["45-2019-qh14_dieu-46"]},
+    {"type": "free_text", "question": "Tôi làm thêm giờ vào ngày nghỉ hằng tuần (Chủ nhật) thì tiền lương làm thêm được tính ra sao?", "key_facts": ["200%"], "gold_article_ids": ["45-2019-qh14_dieu-98", "145-2020-nd-cp_dieu-55"]},
+
     {"type": "out_of_scope", "question": "Cách nấu phở bò ngon nhất là gì?", "gold_article_ids": []},
     {"type": "out_of_scope", "question": "Thời tiết Hà Nội hôm nay thế nào?", "gold_article_ids": []},
     {"type": "out_of_scope", "question": "Cho tôi công thức tính lãi suất ngân hàng.", "gold_article_ids": []},
