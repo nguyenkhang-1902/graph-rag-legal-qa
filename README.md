@@ -6,33 +6,41 @@ Hệ hỏi–đáp pháp luật **lao động – tiền lương – bảo hiể
 
 ---
 
-## 📊 Số liệu đánh giá (2026-08-22)
+## 📊 Số liệu đánh giá (2026-08-27)
 
 ### Dữ liệu (corpus)
 | Chỉ số | Giá trị |
 |---|---|
-| Văn bản | **19** (Luật BHXH 2024, Bộ luật Lao động 2019 + NĐ 145/2020, lương tối thiểu vùng, Luật Việc làm, ATVSLĐ, BHYT, NLĐ nước ngoài + các NĐ/TT 2025) |
-| Điều | **995** |
-| Khoản | **3.193** |
+| Văn bản | **19** (Luật BHXH 2024, Bộ luật Lao động 2019 + NĐ 145/2020, lương tối thiểu vùng, **Luật Việc làm 2025 số 74/2025/QH15** + NĐ 374/2025 hướng dẫn, ATVSLĐ, BHYT, NLĐ nước ngoài + các NĐ/TT 2025) |
+| Điều | **988** |
+| Khoản | **3.205** |
+
+> **Cập nhật 2026-08-26**: `scripts/check_corpus_freshness.py` phát hiện **Luật Việc làm 2013 (38/2013/QH13) đã hết hiệu lực toàn bộ** — đã thay bằng **Luật Việc làm 2025 (74/2025/QH15, hiệu lực 01/01/2026)**. Đây là lý do số liệu QA bên dưới thay đổi so với lần đo trước.
 
 ### Truy xuất (retrieval) — bộ 30 câu, gold Điều xác minh từ tiêu đề
-| Chỉ số | Giá trị |
-|---|---|
-| **recall@5** | **100%** |
-| recall@10 | 100% |
-| MRR | 0.889 |
+| Chỉ số | Không rerank | Có rerank (production) |
+|---|---|---|
+| recall@5 | 100% | 100% |
+| recall@10 | 100% | 100% |
+| MRR | 0.872 | 0.836 |
 
 ### Chất lượng câu trả lời (QA kiểu ALQAC) — bộ 110 câu
 | Loại | Accuracy |
 |---|---|
-| Đúng/Sai (31 câu) | **100%** |
-| Trắc nghiệm A/B/C/D (29 câu) | 86.2% |
-| Tự luận – key facts (35 câu) | 77.1% |
+| Đúng/Sai (31 câu) | 96.8% (30/31) |
+| Trắc nghiệm A/B/C/D (29 câu) | 82.8% (24/29) |
+| Tự luận – key facts (35 câu) | 74.3% (26/35) |
 | **Ngoài phạm vi – từ chối đúng (15 câu)** | **100%** |
-| Truy xuất đúng gold (in-scope) | 94.7% |
-| **TỔNG accuracy** | **89.1%** (98/110) |
+| Truy xuất đúng gold (in-scope) | 94.7% (90/95) |
+| **TỔNG accuracy** | **86.4%** (95/110) |
 
-*Model: `qwen2.5:7b-instruct` (Ollama) + cross-encoder reranker. Bộ 110 câu gồm 18 câu **lao động – tiền lương** (lương tối thiểu vùng, hợp đồng lao động, làm thêm giờ, giấy phép lao động nước ngoài); mở rộng eval **không làm giảm** tổng accuracy (reranker nâng 87.3% → 89.1%).*
+*Model: `qwen2.5:7b-instruct` (Ollama) + cross-encoder reranker.*
+
+> **Vì sao 89.1% (98/110) → 86.4% (95/110)** — đào sâu nguyên nhân bằng cách đọc từng câu trả lời đầy đủ (không chỉ số tổng), không đoán:
+> 1. **Nguyên nhân thật, liên quan Luật Việc làm 2025**: Điều 38 luật mới gộp **4 điều kiện với 4 mốc thời gian khác nhau** (12 tháng/24 tháng, 03 tháng nộp hồ sơ, 10 ngày xét duyệt) vào **một Điều duy nhất** — cộng thêm Nghị định 374/2025 hướng dẫn (nhiều mốc ngày/tháng khác cho từng bước thủ tục) — khiến model dễ lẫn mốc thời gian nào trả lời cho câu nào (~3-4/18 câu sai).
+> 2. **Bug chấm điểm đã sửa** (`scripts/eval_bhxh_qa.py::_score_mc`): regex cũ không nhận diện "đáp án **chính xác** là B" (chỉ nhận "đáp án là B") → 1 câu bị chấm sai oan dù nội dung đúng. Sửa xong đưa số liệu từ 83.6% lên 86.4%.
+> 3. **Không liên quan đến việc đổi luật** (đã kiểm chứng bằng cách đọc ngữ cảnh truy xuất thật cho từng câu): phần lớn lỗi còn lại là hạn chế có sẵn từ trước — model đôi khi **bịa trích dẫn văn bản ngoài corpus** (vd "Nghị định 115/2015/NĐ-CP" không hề có trong 19 văn bản), và vài câu hỏi diễn đạt tự nhiên bị **retrieval miss hoàn toàn** (danh sách truy xuất rỗng) ở các chủ đề không liên quan luật việc làm (lương tối thiểu, trợ cấp hưu trí xã hội, xử phạt BHXH).
+> 4. Đã thử siết prompt Đúng/Sai (thêm "KHÔNG giải thích") cho 1 case model viết cả đoạn văn không chứa từ "đúng"/"sai" — **không hiệu quả**, model 7B cục bộ vẫn bỏ qua ràng buộc khi ngữ cảnh phức tạp. Chấp nhận đây là trần năng lực model 7B, không phải lỗi kiến trúc.
 
 ### Ablation — graph có đáng giá không? (đo được, không cảm tính)
 Câu hỏi **multi-hop** (cần ≥2 Điều, vd Luật + Nghị định), recall@10:
