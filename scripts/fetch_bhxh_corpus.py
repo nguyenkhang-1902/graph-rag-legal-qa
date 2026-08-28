@@ -122,8 +122,12 @@ BHXH_CORPUS_URLS: list[dict] = [
         "che_do": ["thai_san"],  # Bo luat Lao dong 2019 (nghi thai san, HDLD)
     },
     {
-        "url": _B + "luat-viec-lam-so-38-2013-qh13--32912",
-        "che_do": ["that_nghiep"],  # Luat Viec lam (BH that nghiep)
+        # Luat Viec lam 2025 (74/2025/QH15) - hieu luc 01/01/2026, THAY THE
+        # Luat Viec lam 2013 (38/2013/QH13, da het hieu luc toan bo - phat
+        # hien qua scripts/check_corpus_freshness.py 2026-08-26). BH that
+        # nghiep: dieu kien Dieu 38, muc huong Dieu 39, doi tuong Dieu 31.
+        "url": _B + "luat-viec-lam-so-74-2025-qh15--179273",
+        "che_do": ["that_nghiep"],  # Luat Viec lam 2025 (BH that nghiep)
     },
     {
         "url": _B + "nghi-dinh-so-374-2025-nd-cp-quy-dinh-chi-tiet-mot-so-dieu-cua-luat-viec-lam-ve-bao-hiem-that-nghiep--186281",

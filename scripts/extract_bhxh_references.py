@@ -45,7 +45,7 @@ DEFAULT_DATA_DIR = Path("data/raw/bhxh")
 BHXH_DOC_ALIASES: dict[str, str] = {
     "luật bảo hiểm xã hội": "41-2024-qh15",
     "bộ luật lao động": "45-2019-qh14",
-    "luật việc làm": "38-2013-qh13",
+    "luật việc làm": "74-2025-qh15",
     "luật an toàn, vệ sinh lao động": "84-2015-qh13",
     "luật an toàn vệ sinh lao động": "84-2015-qh13",
     "luật bảo hiểm y tế": "25-2008-qh12",
