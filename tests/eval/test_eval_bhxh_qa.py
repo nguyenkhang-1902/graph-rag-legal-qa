@@ -25,6 +25,20 @@ def test_mc_extracts_letter():
     assert _score_mc("B", "C") is False
 
 
+def test_mc_extracts_letter_with_qualifier_words_between_dap_an_and_la():
+    """Bug that tim thay khi dao sau nguyen nhan QA accuracy tut sau doi
+    Luat Viec lam 2025 (TIEN_DO.md): LLM viet "dap an CHINH XAC la B" - hai
+    tu "CHINH XAC" chen giua "dap an" va "la" khien pattern cu (chi cho
+    phep LA/:/khoang trang ngay sau "DAP AN") khong khop, cham SAI oan du
+    noi dung dung."""
+    ans = (
+        "Dựa trên quy định tại Điều 41..., người lao động phải đóng bảo hiểm "
+        "thất nghiệp đủ 12 tháng trong vòng 24 tháng...\n\n"
+        "Vì vậy, đáp án chính xác là:\n\nB) 12 tháng"
+    )
+    assert _score_mc(ans, "B") is True
+
+
 def test_free_text_needs_all_key_facts():
     ans = "Lao động nữ nghỉ 06 tháng, trước sinh không quá 02 tháng."
     facts_ok, cite_ok = _score_free(ans, ["06 tháng", "02 tháng"], ["45-2019-qh14_dieu-139"], ["45-2019-qh14_dieu-139"])

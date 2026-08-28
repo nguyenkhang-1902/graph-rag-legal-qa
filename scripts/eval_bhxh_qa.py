@@ -81,11 +81,18 @@ def _score_true_false(ans: str, gold: str) -> bool:
 def _score_mc(ans: str, gold: str) -> bool:
     """Bat chu cai dap an: uu tien mau "X)"/"X."/"X:"/"dap an X"/"chon X"
     (dau chuoi hoac sau tu chi dinh) - de tranh khop nham chu cai xuat hien
-    ngau nhien trong giai thich. Fallback ve "\\b[ABCD]\\b" o dau chuoi."""
+    ngau nhien trong giai thich. Fallback ve "\\b[ABCD]\\b" o dau chuoi.
+
+    `(?:\\s+\\S+){0,3}?` (them sau khi dao sau nguyen nhan QA accuracy tut
+    - xem TIEN_DO.md): cho phep toi da 3 tu chen giua "DAP AN"/"CHON" va
+    "LA"/":" - LLM thuc te hay viet "dap an CHINH XAC la B" thay vi "dap an
+    la B", pattern cu (chi cho LA/:/khoang trang ngay sau) khong khop nen
+    cham SAI oan du chu cai dung. Lazy (khong tham) nen van khop dung ngay
+    ca khi khong co tu chen them."""
     up = ans.strip().upper()
     patterns = [
         r"^\s*([ABCD])\s*[\)\.:\-]",           # "C)" "C." "C:" "C -"
-        r"(?:ĐÁP\s*ÁN|CHỌN|CÂU\s*TR[ẢA]\s*L[ỜO]I)\s*(?:LÀ|:|\s)+\s*([ABCD])\b",
+        r"(?:ĐÁP\s*ÁN|CHỌN|CÂU\s*TR[ẢA]\s*L[ỜO]I)(?:\s+\S+){0,3}?\s*(?:LÀ|:)\s*([ABCD])\b",
         r"^\s*([ABCD])\s*$",                    # chi mot chu cai
         r"^\s*([ABCD])\b",                      # dau chuoi
     ]
@@ -141,6 +148,14 @@ def main() -> None:
                            "\"Chưa tìm thấy quy định cụ thể trong dữ liệu\" và KHÔNG được bịa.")
                 ok = _score_out_of_scope(ans)
             elif t == "true_false":
+                # Da thu siet prompt (them "KHONG giai thich...") de fix 1
+                # case LLM viet ca doan van khong chua tu "dung"/"sai" nao -
+                # do that: model (qwen2.5:7b-instruct, temperature=0.2) van
+                # bo qua rang buoc, khong cai thien (85.5% < 86.4% ban goc,
+                # case muc tieu van sai y het). Giu nguyen prompt goc - day
+                # la gioi han that cua model 7B cuc bo khi ngu canh phuc tap
+                # (Nghi dinh 374/2025 nhieu dieu khoan), khong phai loi
+                # scorer/retrieval. Xem README.md de biet chi tiet.
                 ans = _ask(q["question"], ctx, "Chỉ trả lời DUY NHẤT một từ: \"Đúng\" hoặc \"Sai\".")
                 ok = _score_true_false(ans, q["answer"])
             elif t == "multiple_choice":
