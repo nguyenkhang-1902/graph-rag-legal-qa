@@ -84,7 +84,7 @@ def _score_mc(ans: str, gold: str) -> bool:
     ngau nhien trong giai thich. Fallback ve "\\b[ABCD]\\b" o dau chuoi.
 
     `(?:\\s+\\S+){0,3}?` (them sau khi dao sau nguyen nhan QA accuracy tut
-    - xem TIEN_DO.md): cho phep toi da 3 tu chen giua "DAP AN"/"CHON" va
+    - xem README.md "Vi sao 89.1%->86.4%"): cho phep toi da 3 tu chen giua "DAP AN"/"CHON" va
     "LA"/":" - LLM thuc te hay viet "dap an CHINH XAC la B" thay vi "dap an
     la B", pattern cu (chi cho LA/:/khoang trang ngay sau) khong khop nen
     cham SAI oan du chu cai dung. Lazy (khong tham) nen van khop dung ngay

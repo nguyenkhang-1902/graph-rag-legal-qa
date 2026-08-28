@@ -1,7 +1,13 @@
-# ✅ Tasks: Graph RAG cho văn bản pháp luật
+# ✅ Tasks: Graph RAG (Phase 1: engine gốc, T001-T028)
 
 **Input**: `spec.md`, `plan.md`, `data-model.md`, `research.md`
 **Ký hiệu**: `[P]` = chạy song song được (khác file, không phụ thuộc) · `[Story]` = US1/US2/US3
+
+> **Toàn bộ T001-T028 đã HOÀN TẤT trên corpus Zalo 67k (đã xoá khỏi đĩa sau
+> pivot BHXH)** — giữ lại làm hồ sơ cách chia task cho một pipeline ingest+
+> retrieval quy mô lớn. Domain BHXH hiện tại dùng breakdown khác, không đánh
+> số T0xx (`scripts/build_corpus.py` gộp lại 1 lệnh idempotent thay vì nhiều
+> task batch/savepoint) — xem `README.md`/`ROADMAP.md`.
 
 ## 🏗️ Phase 1: Setup
 

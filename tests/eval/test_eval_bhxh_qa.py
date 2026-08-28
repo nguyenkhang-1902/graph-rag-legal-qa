@@ -27,7 +27,7 @@ def test_mc_extracts_letter():
 
 def test_mc_extracts_letter_with_qualifier_words_between_dap_an_and_la():
     """Bug that tim thay khi dao sau nguyen nhan QA accuracy tut sau doi
-    Luat Viec lam 2025 (TIEN_DO.md): LLM viet "dap an CHINH XAC la B" - hai
+    Luat Viec lam 2025 (xem README.md "Vi sao 89.1%->86.4%"): LLM viet "dap an CHINH XAC la B" - hai
     tu "CHINH XAC" chen giua "dap an" va "la" khien pattern cu (chi cho
     phep LA/:/khoang trang ngay sau "DAP AN") khong khop, cham SAI oan du
     noi dung dung."""

@@ -1,6 +1,15 @@
-# 🛠️ Implementation Plan: Graph RAG cho văn bản pháp luật
+# 🛠️ Implementation Plan: Graph RAG (Phase 1: engine gốc)
 
 **Branch**: `001-graph-rag-core` | **Date**: 2026-08-03 | **Spec**: `spec.md`
+
+> **Đã pivot sang BHXH/lao động-tiền lương** — cấu trúc thư mục `app/` dưới
+> đây phần lớn vẫn đúng (`graph_store/`, `retrieval/`, `serving/api.py`), đã
+> thêm mới `app/extraction/{doc_identity,vbpl_parser}.py` +
+> `scripts/{build_corpus,fetch_bhxh_corpus,extract_bhxh_references,embed_bhxh,
+> check_corpus_freshness,discover_vbpl}.py` cho domain BHXH. `ingest_checkpoint/`
+> + `app/ingest.py`'s CLI batch/savepoint không còn được gọi ở luồng chính
+> (corpus 19 văn bản, wipe+rebuild trực tiếp qua `build_corpus.py`) nhưng vẫn
+> giữ vài helper dùng chung (`discover_documents`, `_all_articles`).
 
 ## 📋 Summary
 

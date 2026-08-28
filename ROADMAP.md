@@ -11,13 +11,13 @@ Nguyên tắc xuyên suốt:
 - **Đo được**: mọi thay đổi phải qua bộ eval (retrieval + QA kiểu ALQAC), không "cảm tính".
 - **Validate trước khi scale**: chứng minh giá trị kiến trúc trước khi mở rộng dữ liệu.
 
-## Trạng thái hiện tại (2026-08)
+## Trạng thái hiện tại (2026-08-27)
 | | |
 |---|---|
 | Domain | BHXH (5 chế độ + thất nghiệp + TNLĐ-BNN + y tế liên quan) |
-| Corpus | 19 văn bản · 995 Điều · 3.193 Khoản — **luật hiện hành** |
-| Retrieval | recall@5 = 100% (bộ 30 câu) |
-| QA (110 câu, kiểu ALQAC) | TỔNG 89.1% · Đúng/Sai 100% · guardrail out-of-scope 100% (gồm 18 câu lao động–tiền lương) |
+| Corpus | 19 văn bản · 988 Điều · 3.205 Khoản — **luật hiện hành** (Luật Việc làm đã cập nhật 2013→2025, xem GĐ2) |
+| Retrieval | recall@5 = 100% (bộ 30 câu, cả có/không rerank) |
+| QA (110 câu, kiểu ALQAC) | TỔNG **86.4%** (95/110) · Đúng/Sai 96.8% · guardrail out-of-scope 100% — xem README mục "Vì sao 89.1%→86.4%" cho phân tích nguyên nhân đầy đủ |
 | Engine | ChromaDB (bge-m3) + Neo4j + reranker (bge-reranker-v2-m3) + Ollama (qwen2.5:7b) |
 
 ## Lộ trình
@@ -34,14 +34,16 @@ Nguyên tắc xuyên suốt:
 
 ### 🎯 Giai đoạn 1 — Mở rộng domain: lao động – tiền lương
 - [x] Thêm văn bản lõi: NĐ 145/2020 (hướng dẫn Bộ luật Lao động), NĐ 293/2025 (lương tối thiểu vùng), NĐ 219/2025 (NLĐ nước ngoài) → corpus 16 → **19 văn bản**
-- [x] Mở rộng bộ eval tương ứng (giữ chuẩn ALQAC): **+18 câu lao động–tiền lương** (92 → 110 câu) — TỔNG accuracy giữ **89.1%**
+- [x] Mở rộng bộ eval tương ứng (giữ chuẩn ALQAC): **+18 câu lao động–tiền lương** (92 → 110 câu) — TỔNG accuracy giữ **89.1%** (đã đo lại **86.4%** sau khi cập nhật Luật Việc làm 2013→2025, xem GĐ2 + README)
 - [ ] Nâng bộ QA lên quy mô ~200–500 câu để chỉ số đáng tin ở mức trình bày/công bố
 - [ ] **Known-issue:** NĐ 145/2020 `dieu-1..11` bị phụ lục "Mẫu HĐLĐ" ghi đè (structure parser bắt nhầm phụ lục là Điều) — cần lọc phụ lục "Mẫu số…"
 
 ### 🔄 Giai đoạn 2 — Cập nhật luật tự động
 - [x] **Nền discovery** (`scripts/discover_vbpl.py`): resolver số hiệu → URL chi tiết vbpl.vn (tìm theo "Số hiệu" chính xác), kèm `trạng_thái` hiệu lực — human-in-the-loop. Crawler thêm retry/backoff + bỏ nhanh trang "không tồn tại" (`fetch_bhxh_corpus.py`).
-- [x] **Phát hiện văn bản hết hiệu lực** (`scripts/check_corpus_freshness.py`): soát từng văn bản corpus ↔ trạng_thái LIVE vbpl.vn. **Chạy thật (2026-08-26): 3/19 hết hiệu lực TOÀN BỘ** — Luật Việc làm 38/2013, TT 20/2023, NĐ 75/2024 — + 5 hết hiệu lực một phần. → cần tìm văn bản thay thế.
-- [ ] Tự động crawl + ingest + đánh dấu `superseded` cho văn bản hết hiệu lực (dùng freshness ở trên làm đầu vào)
+- [x] **Phát hiện văn bản hết hiệu lực** (`scripts/check_corpus_freshness.py`): soát từng văn bản corpus ↔ trạng_thái LIVE vbpl.vn. **Chạy thật (2026-08-26): 3/19 hết hiệu lực TOÀN BỘ** — Luật Việc làm 38/2013, TT 20/2023, NĐ 75/2024 — + 5 hết hiệu lực một phần.
+- [x] **Luật Việc làm 38/2013 → 74/2025** đã thay xong thủ công (2026-08-27): fetch + ingest + embed + cập nhật gold 2 bộ eval, RECONCILE OK. Xem README "Vì sao 89.1%→86.4%".
+- [ ] **CÒN 2/3 văn bản hết hiệu lực toàn bộ chưa thay**: TT 20/2023, NĐ 75/2024 — + 5 hết hiệu lực một phần chưa rà.
+- [ ] Tự động crawl + ingest + đánh dấu `superseded` cho văn bản hết hiệu lực (dùng freshness ở trên làm đầu vào) — hiện đang làm thủ công từng văn bản một (xem dòng trên)
 - [ ] Temporal Resolver: cảnh báo khi có chuyển tiếp luật
 
 ### 🕸️ Giai đoạn 3 — Cross-doc multi-hop

@@ -1,6 +1,14 @@
-# 📜 Feature Specification: Graph RAG cho văn bản pháp luật
+# 📜 Feature Specification: Graph RAG (Phase 1: engine gốc)
 
-**Feature Branch**: `001-graph-rag-core` | **Created**: 2026-08-03 | **Status**: Draft
+**Feature Branch**: `001-graph-rag-core` | **Created**: 2026-08-03 | **Status**: Superseded — xem ghi chú dưới
+
+> **Đã pivot sang domain BHXH/lao động-tiền lương (2026-08-20+)**: spec này
+> mô tả mục tiêu BAN ĐẦU (corpus 67k văn bản pháp luật đa lĩnh vực, nguồn
+> Zalo — đã xoá khỏi đĩa). Corpus hiện tại là **19 văn bản BHXH/lao động**,
+> temporal-first (chỉ luật hiện hành), xem `README.md`/`ROADMAP.md` cho spec
+> đang sống. Giữ file này làm hồ sơ thiết kế gốc của engine (User Story
+> 1/2 — multi-hop + benchmark — vẫn là năng lực cốt lõi đang dùng; User Story
+> 4 — batch 67k — không còn áp dụng ở quy mô nhỏ hiện tại).
 
 ## 🎬 User Scenarios & Testing (mandatory)
 

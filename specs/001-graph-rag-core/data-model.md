@@ -1,6 +1,16 @@
-# 🕸️ Data Model — Graph RAG Legal QA
+# 🕸️ Data Model — Graph RAG (Phase 1: thiết kế gốc)
 
 **Feature**: `001-graph-rag-core` | **Store**: Neo4j Community
+
+> **Đã cập nhật cho hệ thống BHXH hiện tại (2026-08-27)**: schema gốc dưới đây
+> vẫn là nền (Document→Chapter→Article→Clause, REFERENCES cho multi-hop).
+> Đã thêm ở giai đoạn BHXH nhưng **chưa cập nhật vào bảng dưới**: `che_do`
+> (chế độ BHXH), `trang_thai` (active/superseded), `ngay_hieu_luc` thật (không
+> chỉ khai báo — dùng để lọc văn bản hết hiệu lực). `DEFINES`/`USES_TERM`/
+> `AMENDS`/`SUPERSEDES`/`CONFLICTS_WITH` **đã code xong (`app/extraction/
+> term_extractor.py`, `relation_llm.py`) nhưng KHÔNG được dùng bởi pipeline
+> BHXH hiện tại** (`scripts/build_corpus.py` không gọi tới) — giữ code lại
+> làm tham khảo, không phải dead-code cần xoá ngay.
 
 Ký hiệu: `✚` thêm mới (project mới, mọi entity đều ✚) · `⚠` cần verify khi implement · `[CẦN DUYỆT]` chờ Khang quyết.
 
@@ -41,8 +51,8 @@ CREATE INDEX article_chroma_id IF NOT EXISTS FOR (a:Article) ON (a.chroma_id);
 CREATE INDEX document_batch_id IF NOT EXISTS FOR (d:Document) ON (d.batch_id);
 ```
 
-`batch_id` trên `Document` phục vụ ingest theo batch + savepoint ở quy mô 67k văn bản — xem `plan.md` (Ingest checkpoint) và `tasks.md` T009b.
+`batch_id` trên `Document` phục vụ ingest theo batch + savepoint — chỉ cần thiết ở quy mô lớn (xem `research.md` ADR-002), corpus BHXH hiện tại (19 văn bản) không cần cơ chế này.
 
 ## 🔄 State machine
 
-Không áp dụng cho nội dung pháp luật (không track "đang hiệu lực/hết hiệu lực" theo thời gian ở P1). Có state machine riêng cho **tiến trình ingest** ở quy mô 67k — xem `research.md` (ADR-002 — Batch ingest + savepoint).
+**Đã lỗi thời**: dòng "không track đang hiệu lực/hết hiệu lực theo thời gian" không còn đúng — hệ thống BHXH hiện tại **temporal-first** (`trang_thai active/superseded`, `scripts/check_corpus_freshness.py` đối chiếu trạng thái LIVE trên vbpl.vn). Đây chính là khác biệt lớn nhất giữa Phase 1 (corpus tĩnh, đa lĩnh vực) và giai đoạn BHXH (corpus nhỏ nhưng luôn cập nhật theo luật hiện hành).

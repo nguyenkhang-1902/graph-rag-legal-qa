@@ -1,319 +1,44 @@
-# 📓 GRAPH RAG LEGAL QA — NHẬT KÝ TIẾN ĐỘ & HƯỚNG DẪN TIẾP TỤC
-> Cập nhật: **2026-08-07**. Mở file này đầu tiên là biết đang ở đâu và làm gì tiếp.
-> Mọi điểm chờ người quyết định đã gom về file `CHECKLIST-GRAPHRAG-DUYET.md`.
-
-## 0. 🎨 ĐỢT 1 — Brainstorming & Spec-driven setup (2026-08-03)
-
-- [x] Brainstorm hướng đi: đối chiếu 10 pattern RAG, chọn Graph RAG làm bước đệm trước Agentic RAG (lý do: legal domain có cấu trúc trích dẫn tự nhiên, hợp graph; Agentic RAG để dành cho quy mô doanh nghiệp sau này)
-- [x] So sánh 3 approach xây Graph RAG (Microsoft GraphRAG / custom dựa trên citation structure / LightRAG) — chọn custom, lý do chi phí index thấp hơn Microsoft GraphRAG, tận dụng đúng đặc thù văn bản luật VN
-- [x] Chọn Neo4j Community làm graph store (ADR-001 trong `research.md`) thay vì NetworkX — ưu tiên giá trị CV/demo trực quan
-- [x] Thiết kế graph schema (6 node type, 7 relationship type) — `specs/001-graph-rag-core/data-model.md`
-- [x] Viết `constitution.md`, `spec.md`, `plan.md`, `tasks.md`, `research.md`, `quickstart.md`, `checklists/requirements.md`
-
-## 0b. ✅ ĐỢT 2 — Chốt các điểm treo, mở rộng quy mô (2026-08-03)
-
-- [x] B1: `MAX_HOP=2` — chốt. B2: Article node rút gọn + `chroma_id` (không lưu full text Neo4j) — chốt.
-- [x] B3: AMENDS/SUPERSEDES/CONFLICTS_WITH làm ngay ở P1 (không dời P2) — cập nhật `spec.md` FR-003, `data-model.md`.
-- [x] B4: Claude soạn tập câu hỏi multi-hop (SC-001), Khang duyệt lại sau — cập nhật Assumptions.
-- [x] C1: **Quy mô tăng lên toàn bộ 67k văn bản** (từ đề xuất ban đầu 2k/10k) — thêm User Story 4 + FR-008 (batch/savepoint) + SC-005, ADR-002 trong `research.md`, task T009b-d trong `tasks.md`.
-- [x] C2: Không làm UI Streamlit — API + Neo4j Browser là đủ. Cập nhật `plan.md`, `spec.md` Assumptions.
-- [x] Constitution nâng version 1.0 → 1.1 (MINOR — thêm quy mô/hạ tầng, không đổi nguyên tắc gốc).
-- [x] Icon hóa toàn bộ heading trong các file .md cho dễ đọc.
-- [ ] **Còn lại (theo dõi, không chặn)**: D1 — đo throughput thật để chốt `INGEST_BATCH_SIZE`; D2 — kiểm tra baseline Hybrid+Reranker cũ có số liệu ở 67k chưa, nếu chưa phải đo lại trước khi so sánh ở Phase 4.
-- [ ] **Sẵn sàng bắt đầu**: `tasks.md` Phase 1 (T001) — khởi tạo code thật (hiện tại mới có `.specify/` + `specs/` + docs, chưa có `app/` code)
-
-**Việc tiếp theo**: đọc `specs/001-graph-rag-core/tasks.md` Phase 1, bắt đầu từ T001. Nếu dùng subagent triển khai, đưa cả `constitution.md` (v1.1) + `plan.md` + `tasks.md` làm context. Lưu ý D1/D2 khi tới Foundational/Phase 4.
-
-## 1. 🏗️ ĐỢT 3 — Triển khai Phase 1 + Phase 2 Foundational (2026-08-03)
-
-- [x] Git repo khởi tạo, branch `001-graph-rag-core`, quy trình subagent-driven-development (implementer + reviewer riêng mỗi task, fix inline khi review tìm lỗi).
-- [x] Phase 1 Setup hoàn tất: T001 (scaffold), T002 (docker-compose Neo4j), T003 (fetch script tái dùng, xác nhận mặc định đã là full 67k), T004 (`app/config.py`).
-- [x] Phase 2 Foundational hoàn tất: T005 (`neo4j_client.py`), T006-T007 (`reference_extractor.py` + `slugify.py`, TDD đúng nghĩa — test trước, xác nhận red, rồi implement), T008 (`structure_parser.py`), T009 (`upsert.py`, idempotent + external-reference placeholder), T009b-d (`state_store.py` savepoint atomic, `app/ingest.py` batch CLI, test resume-after-crash mô phỏng bằng mock).
-- [x] 83/83 test pass. Review tìm và fix inline nhiều lỗi thật đáng chú ý: thiếu `;` verbatim Cypher, doc-type Bộ luật/Thông tư/Nghị quyết bị gán nhầm trích dẫn nội bộ, Chapter nuốt mất Article khi không có dòng tiêu đề riêng, lệch `article_id` giữa 2 module khi số điều có số 0 ở đầu, `doc_id` trùng khi thiếu tiêu đề, và quan trọng nhất: **checkpoint không ghi `batch_size` → đổi batch size giữa 2 lần chạy sẽ âm thầm bỏ sót hàng nghìn văn bản khi resume** (đã fix: phát hiện + từ chối chạy).
-- [x] **Điểm dừng theo hiến pháp — ĐÃ VERIFY với dữ liệu thật**: fetch 447 văn bản mẫu thật (Zalo corpus) → phát hiện **corpus thật KHÔNG phải Document→Chương→Điều→Khoản như giả định ban đầu** — mỗi file thực ra là **1 Điều đơn lẻ** (title = "Điều N. ..."), `Chương` chỉ xuất hiện như trích dẫn trong nội dung, không bao giờ là heading thật. Đã sửa: thêm `parse_article_chunk()` (giữ nguyên `parse_document()` cũ), `app/ingest.py` lấy `doc_id`/số điều từ tên file. Cũng phát hiện + sửa 1 bug hạ tầng thật: `docker-compose.yml` dùng `env_file: .env` khiến Neo4j image tự hiểu nhầm biến app (`NEO4J_URI`) thành config server → crash loop; đã xóa `env_file`.
-- [x] **Test kill -9 THẬT (không mock)**: chạy `python -m app.ingest data/raw --limit 60 --batch-size 5` trên Neo4j thật, `kill -9` tiến trình thật giữa batch 6/12 → checkpoint đúng `last_completed_batch: 5` → chạy lại y nguyên lệnh → log "resume từ batch 6/12" → hoàn tất, **60 Article thật = đúng 60 file, 0 document trùng, 0 article trùng**, 15 external-reference placeholder tạo đúng cơ chế. ✔ SC-005/FR-008/User Story 4 xác nhận đầy đủ.
-- [x] Đã dọn sạch Neo4j + checkpoint sau test, sẵn sàng cho Khang tự chạy ingest thật quy mô lớn hơn.
-- [x] **Việc tiếp theo (Khang tự chạy)**: xem hướng dẫn cuối phiên chat cho lệnh cụ thể — fetch full 67k (khá lâu, tải toàn bộ qua HuggingFace) rồi `python -m app.ingest data/raw`. Sau khi ingest xong mới sang Phase 3 (`tasks.md` T010+, User Story 1 — trả lời câu hỏi multi-hop).
-
-## 2. 🔍 ĐỢT 4 — Ingest full thật + Phase 3 User Story 1 (2026-08-04)
-
-- [x] Khang tự chạy fetch full + ingest 61,068 văn bản thật thành công (61,068 file → 60,679 Article/3,203 Document/165,699 Clause/37,875 REFERENCES — 389 file trùng do corpus gốc không nhất quán encoding, đã audit 100% an toàn giống hệt nội dung).
-- [x] **T009e** 🆕: pre-flight collision detection trong `app/ingest.py` — dedup tự động khi nội dung giống hệt, dừng + báo lỗi rõ khi nội dung khác nhau (bảo vệ các lần ingest sau, xem ADR-003 `research.md`).
-- [x] **T009f** 🆕 (gap phát hiện khi bắt đầu Phase 3 — không task nào ghi embedding vào Chroma): `app/retrieval/embedder.py` + `scripts/backfill_embeddings.py`. Phát hiện + fix 1 bug thật nghiêm trọng trước khi chạy full: Chroma collection tạo thiếu `hnsw:space=cosine` (mặc định L2) → sẽ làm `SIMILARITY_THRESHOLD` vô nghĩa. Bắt được sau ~96 Article test, dọn sạch, sửa, chạy lại đúng.
-- [x] Benchmark thật: ~1.6s/Article trên CPU (không có GPU) → full 60k ước tính ~27h. Theo quyết định của Khang, chỉ backfill subset ~3000 Article trước để verify T010+, full 60k để sau (script resumable, có thể tiếp tục bất cứ lúc nào bằng lệnh y nguyên).
-- [x] **T010** `retrieval/entry_point.py` — vector search Chroma, tự verify công thức distance→similarity (`1 - distance`) bằng smoke test thật trên chromadb thật, không đoán.
-- [x] **T011 + T015** `retrieval/traversal.py` — BFS thủ công (không dùng Cypher variable-length pattern) để chống lặp vô hạn đúng yêu cầu spec. Review bắt lỗi thật: query `DEFINES` bị ràng buộc `(b:Article)` nhưng `DEFINES` trỏ tới `Term` — sẽ không bao giờ khớp dù T012 có populate sau. Đã sửa: phân loại đúng Article/Term, thêm `visited_term_ids`.
-- [x] **T014** `serving/api.py` (`POST /chat`) — nối `entry_point` + `traversal` + Ollama thật (`/api/generate`, đã verify shape API thật). Xử lý đúng 3 nhóm content (embedded/chưa embedded/external), không bịa nội dung. Review bắt lỗi thật: `citation_path` thiếu field `is_preview` (người dùng không biết trích dẫn nào chỉ là preview rút gọn) — đã sửa.
-- [x] **✅ Checkpoint Phase 3 đạt được — test thật qua API** (không mock): hỏi "Chế độ tuần tra canh gác đê khi báo động lũ cấp I được quy định như thế nào?" → trả lời đúng nội dung Điều 8 Thông tư 01/2009/TT-BNNPTNT (đối chiếu thủ công với Neo4j gốc, khớp chính xác), multi-hop traversal thật Điều 8 → Điều 1 → Điều 4 qua REFERENCES, citation_path/edges_used đúng.
-- [x] **T016** `scripts/build_multihop_eval_set.py` (dò ứng viên chuỗi REFERENCES thật, không LLM) + `data/eval/multihop_eval_set.json` (32 câu hỏi thật do Claude soạn từ nội dung thật, đọc trực tiếp — **CHƯA DUYỆT chính thức**, xem `spec.md` Assumptions). Đã xác nhận: 44/44 article_id cần dùng đều đã có embedding, test được ngay. Lưu ý: đây chỉ là bộ kiểm tra định tính cho Phase 3, KHÔNG phải benchmark chính thức (đó là Phase 4 — T017/T018/T019, Recall@k/MRR trên toàn bộ 67k).
-- [x] **GPU acceleration**: phát hiện máy có RTX 3050 nhưng torch cài bản CPU-only → cài lại `torch==2.13.0+cu126`, xác nhận CUDA hoạt động (`torch.cuda.is_available()==True`). **Benchmark thật (21 batch, 672 Article, batch-size=32): ~1.44s/Article trên GPU vs ~1.6s/Article trên CPU — chỉ nhanh hơn ~1.1 lần, KHÔNG phải 5-8x như kỳ vọng ban đầu.** Nghi ngờ nguyên nhân: batch-size=32 quá nhỏ để GPU khấu hao hết overhead truyền dữ liệu CPU↔GPU; RTX 3050 (6GB, tier phổ thông) so với CPU 12 luồng đã khá mạnh sẵn. Chưa thử batch-size lớn hơn (64/128) để xác nhận giả thuyết — có thể cải thiện thêm nếu cần.
-- [ ] **Còn lại Phase 3**: T012 (`extraction/term_extractor.py` — DEFINES/USES_TERM, rule-based trước, LLM fallback), T013 (`extraction/relation_llm.py` — AMENDS/SUPERSEDES/CONFLICTS_WITH qua Ollama, kèm `confidence`).
-- [ ] **Backfill embedding**: đang chạy nền (GPU) lúc kết thúc phiên này, tự resume nếu bị dừng. Kiểm tra tiến độ: `MATCH (a:Article) WHERE a.chroma_id IS NOT NULL RETURN count(a)` trong Neo4j Browser (`localhost:7474`). Muốn tiếp tục/mở rộng full 60k: chạy lại `python -m scripts.backfill_embeddings data/raw` (tự bỏ qua phần đã xong).
-- [x] **Khang đã duyệt** 32 câu hỏi trong `data/eval/multihop_eval_set.json` (T016, 2026-08-04) — `CHECKLIST-GRAPHRAG-DUYET.md` mục E1 chốt. Có thể dùng chính thức cho SC-001/Phase 4.
-
-## 3. 🩺 ĐỢT 5 — Chẩn đoán + fix GPU embedding chậm (2026-08-05)
-
-- [x] **Điều tra chênh lệch Article count** (60,679 ghi trong ĐỢT 4 vs 69,106 thực tế trong Neo4j): KHÔNG phải bug/ingest lần 2 — cơ chế "external reference placeholder" (T009e) tạo 8,427 node `:Article {is_external: true}` cho các trích dẫn tới điều luật ngoài phạm vi 61k corpus. 60,679 (thật) + 8,427 (placeholder) = 69,106 khớp chính xác. Backfill chỉ cần tính trên 60,679 (đọc từ file, không quét Neo4j).
-- [x] **Chẩn đoán nguyên nhân GPU chỉ nhanh hơn CPU ~1.1x** (thay vì 5-8x kỳ vọng — dùng `systematic-debugging`, `cProfile`, benchmark thật trên mẫu 128 file thật): 2 nguyên nhân xác nhận bằng bằng chứng thật, không phải đoán —
-  1. Mỗi lần `SentenceTransformer(...)` khởi tạo, sentence-transformers gọi ~34 HTTP request kiểm tra revision trên HF Hub dù model đã cache đủ (chiếm 6.1/8.76s = 70% thời gian init). Fix: `os.environ.setdefault("HF_HUB_OFFLINE", "1")` trong `app/retrieval/embedder.py` — giảm còn ~2s.
-  2. Corpus có độ dài Điều lệch cực mạnh (quét thật 61,069 file: p50=899 ký tự, p90=2,751, p99=7,640, **max=252,967** — file `12_2017_qh14_1.md`). Không sắp xếp → 1 Điều dài lọt vào batch buộc CẢ batch pad theo độ dài đó (batch=64 đo được CHẬM HƠN 7.7 lần/item so với batch=32 do dính outlier ~4737 token). Fix: sort `pending` theo độ dài trước khi chia batch trong `scripts/backfill_embeddings.py`.
-- [x] **Xác nhận GPU đạt đúng kỳ vọng sau fix**: benchmark thật (mẫu 128 file, đã sort) — batch=32: GPU 0.090s/item vs CPU 0.77s/item = **nhanh hơn 8.5 lần**; batch=64: GPU 0.126s/item vs CPU 0.91s/item = **nhanh hơn 7.3 lần**. batch=128 **OOM thật** trên RTX 3050 (6GB VRAM) — "Tried to allocate 10.70 GiB".
-- [x] **Batch-size cố định không an toàn cho corpus thật** (outlier tới 252,967 ký tự, ~63k token, sẽ bị cắt ở `model.max_seq_length=8192`) — thêm `_group_into_length_aware_batches`/`_batch_cap_for_length` (`scripts/backfill_embeddings.py`): batch-size **thay đổi theo tầng độ dài** thay vì cố định — ≤2,751 ký tự (p90, ~90% corpus): dùng nguyên `--batch-size`/`EMBED_BATCH_SIZE` (mặc định 32); 2,751–7,640 ký tự (p90–p99): cap 8; >7,640 ký tự (p99+, ~610 file, ~1%): cap 1 (xử lý riêng từng file, tránh OOM). Ngưỡng 8/1 là **thận trọng, chưa kiểm chứng thật ở quy mô lớn hơn** — ưu tiên an toàn hơn tối ưu.
-- [x] TDD đầy đủ cho cả 2 fix + batching theo tầng: 8 test mới (`tests/retrieval/test_embedder.py`, `tests/test_backfill_embeddings.py`), viết trước-đỏ-sau-xanh đúng quy ước dự án. 155/156 test pass (1 fail không liên quan — `INGEST_BATCH_SIZE=3` set sẵn trong shell của Khang, không phải regression).
-- [ ] **Chưa chạy**: backfill full phần còn lại (56,911 Điều thật, = 60,679 − 3,768 đã embed) với 2 fix mới — Khang tự chạy `python -m scripts.backfill_embeddings data/raw` khi sẵn sàng (không cần chỉnh gì thêm, batch-size theo tầng tự động áp dụng).
-
-## 4. 🔤 ĐỢT 6 — T012 term_extractor.py (2026-08-05, làm song song lúc backfill đang chạy)
-
-- [x] **T012 (một phần)** `app/extraction/term_extractor.py` — rule-based DEFINES/USES_TERM, KHÔNG dùng Neo4j (constitution Điều 5), KHÔNG gọi Ollama (chưa làm LLM fallback, xem bên dưới).
-  - `extract_definitions_rule_based(text)`: khớp mẫu `"<thuật ngữ>" được hiểu là <định nghĩa>` — CHỈ trích khi thuật ngữ có quotes rõ ràng (thẳng `"` hoặc cong `“ ”`, corpus dùng cả 2). Khảo sát thật 15 file mẫu ngẫu nhiên có chứa "được hiểu là": chỉ 4/15 có thuật ngữ đủ rõ để trích — phần lớn còn lại là mệnh đề mô tả dài không có ranh giới rõ ràng, **cố tình bỏ qua** (rule-based, "sai còn tệ hơn không trích", cùng triết lý `reference_extractor.py`).
-  - Bug thật TDD bắt được trước khi implement xong: câu thật nối 2 định nghĩa qua "và" trong cùng câu nhưng chỉ thuật ngữ đầu có quotes (`"Ngày" được hiểu là ngày dương lịch và tháng được hiểu là tháng dương lịch.`) — nếu chỉ cắt ở dấu chấm, định nghĩa đầu sẽ "nuốt" luôn phần không liên quan. Fix: thêm lookahead dừng trước cụm `và ...được hiểu là` tiếp theo.
-  - `extract_term_usages_rule_based(text, known_terms)`: string-match case-sensitive + word-boundary — cố tình phân biệt hoa/thường (thuật ngữ định nghĩa thường viết hoa như "Ngày", nhưng từ đó cũng là từ thông dụng viết thường xuất hiện khắp văn bản luật — không phân biệt sẽ bùng nổ false positive USES_TERM vô nghĩa).
-  - 16/16 test mới pass (TDD đầy đủ), 171/172 toàn bộ suite (1 fail cũ không liên quan).
-- [x] **T012 hoàn chỉnh (phần orchestration)** — thêm `upsert_definitions`/`upsert_term_usages` (batch UNWIND, `app/graph_store/upsert.py`) + `scripts/extract_terms.py` (CLI 2-pass: pass 1 thu thập TOÀN BỘ định nghĩa trong corpus trước, pass 2 mới tính USES_TERM cho mọi Article — tránh bỏ sót khi Article dùng thuật ngữ được định nghĩa ở văn bản khác đọc SAU nó theo thứ tự file). Article tự định nghĩa 1 thuật ngữ KHÔNG bị tính là "dùng lại" chính nó (loại trừ khỏi USES_TERM). Không cần checkpoint/resume (khác backfill embedding) — chỉ regex trên văn bản ngắn, chạy lại từ đầu nếu bị ngắt là an toàn (MERGE-based).
-- [x] **Chạy thật trên toàn bộ 60,679 Article** (song song lúc backfill embedding đang chạy, không đụng nhau — khác node/edge type): **10 Term, 10 DEFINES, 525 USES_TERM** — hoàn tất trong ~14s. Kiểm chứng trực tiếp trong Neo4j: 10 Term đều có định nghĩa hợp lý, không rác (vd "Ngày", "Đơn PCT", "Đơn Madrid", "Thường trú tại Việt Nam"...).
-- [x] 7/7 test mới cho `extract_terms.py` (TDD), 5/5 test mới cho `upsert_definitions`/`upsert_term_usages`. Tổng 183/184 toàn bộ suite (1 fail cũ không liên quan).
-- [x] **Mở rộng độ phủ rule-based (không cần LLM)** — phát hiện mẫu định nghĩa PHỔ BIẾN HƠN NHIỀU trong corpus thật: danh sách đánh số `"N. <thuật ngữ> là <định nghĩa>."` dưới tiêu đề "Điều N. Giải thích từ ngữ" + trigger "được hiểu như sau" (1,072 file có trigger này, so với chỉ 54 file có "được hiểu là"). Thêm `_ENUM_ITEM_RE`/`_split_enum_item_term_and_definition` vào `term_extractor.py` — CHỈ kích hoạt khi có trigger phrase (tránh false positive trên danh sách đánh số khác như điều kiện/thủ tục). Đo thật: **844 file / 6,065 định nghĩa** (tăng ~600 lần so với 6 file/10 định nghĩa ban đầu).
-- [x] **Bug thật phát hiện + fix ngay**: mẫu viết tắt `"<Tên đầy đủ> (sau đây gọi tắt là <tên ngắn>) là <định nghĩa>"` khiến regex bắt nhầm " là " bên trong ngoặc viết tắt (4.4% = 266/6,065 định nghĩa bị cắt cụt). Fix bằng kiểm tra ngoặc cân bằng trước khi chọn điểm tách term/định nghĩa (`_split_enum_item_term_and_definition`) — giảm còn 45/6,055 (~0.7%, chấp nhận được).
-- [x] 8 test mới (22/22 tổng cho `term_extractor.py`), 189/190 toàn bộ suite (1 fail cũ không liên quan).
-- [x] **Chạy lại `extract_terms.py` full corpus với logic mới, ghi thật vào Neo4j** (idempotent, MERGE-based — không phá dữ liệu cũ): **5,352 Term, 6,005 DEFINES, 108,723 USES_TERM** (tăng từ 10/10/525 lần chạy đầu).
-- [ ] **Còn thiếu (không chặn)**: LLM fallback cho phần định nghĩa vẫn chưa bắt được (case không theo cả 2 mẫu rule-based) — không còn cấp thiết như đánh giá ban đầu vì rule-based đã nâng độ phủ lên rất nhiều mà không cần LLM. Cần Khang quyết có đáng đầu tư thêm hay chấp nhận độ phủ hiện tại trước khi coi T012 đóng hẳn.
-
-## 5. ✅ ĐỢT 8 — Backfill embedding hoàn tất 100% (2026-08-06)
-
-- [x] **Sự cố**: máy tắt/khởi động lại giữa 2 phiên làm việc → Docker Desktop không tự chạy → Neo4j không reachable (`ConnectionRefusedError` khi chạy lại `backfill_embeddings.py`). Không phải lỗi code — đã hướng dẫn Khang mở lại Docker Desktop (`restart: unless-stopped` trong `docker-compose.yml` tự khởi động lại container sau đó).
-- [x] **Backfill embedding full 60,679 Article đã HOÀN TẤT 100%** — Khang tự chạy xong. Kiểm chứng thật 2 chiều: Neo4j `chroma_id IS NOT NULL` = 60,679/60,679; Chroma collection `.count()` = 60,679 — khớp tuyệt đối, không lệch.
-- [x] `extract_terms.py` (bản mở rộng ĐỢT 7) cũng đã chạy xong thật vào Neo4j trong lúc chờ — xác nhận 5,352 Term/6,005 DEFINES/108,723 USES_TERM đã có sẵn trong graph.
-
-## 6. 📊 ĐỢT 9 — T017 Recall@k/MRR baseline + hiệu chỉnh SIMILARITY_THRESHOLD (2026-08-06)
-
-- [x] **`scripts/eval_graph_recall.py` (T017)** — đo Recall@k/MRR thật trên 32 câu eval, dùng CÙNG phương pháp với `D:\RAG Chatbot\scripts\eval_zalo_recall.py` (baseline Hybrid+Reranker cũ, đã đọc trực tiếp để đối chiếu — spec.md FR-007 "cùng phương pháp project trước"). Điều chỉnh có chủ đích cho đặc thù multi-hop: `strict_recall` (SC-001 "trích dẫn ĐỦ", all-or-nothing/câu) + `lenient_recall` (article-level, gộp toàn bộ) + `MRR` (dùng rank TỐT NHẤT trong số các `expected_article_ids`/câu — mở rộng chuẩn cho multi-relevant-doc). "Retrieved list" được xếp hạng: entry point trước (theo similarity), Article tìm thêm qua traversal REFERENCES sau (theo thứ tự xuất hiện trong `edges`, bỏ qua DEFINES vì trỏ tới Term không phải Article). 10/10 test mới, chạy thật qua `find_entry_points`/`traverse` production thật (không phải đường đi riêng cho eval).
-- [x] **Baseline thật lần đầu (threshold=0.75 cũ)**: Strict recall **59.4%** — DƯỚI mục tiêu SC-001 (≥80%). Điều tra bằng dữ liệu thật (không đoán): 30/58 (52%) `expected_article_id` có similarity NẰM TRONG top-20 nhưng THẤP HƠN 0.75 — bị lọc oan. Trung vị similarity của kết quả ĐÚNG chỉ ~0.7426 — gần sát ngay dưới ngưỡng.
-- [x] **Thử nghiệm + xác minh nghiêm ngặt trước khi chốt** (theo đúng yêu cầu Quy tắc riêng #3 — không chốt ngưỡng chỉ vì số đẹp trên đúng tập test):
-  - Ngưỡng 0.65: Strict recall **90.6%**, Lenient **93.1%**, MRR **0.917** — vượt mục tiêu SC-001.
-  - **Đọc tay 10/10 câu "lật" fail(0.75)→pass(0.65)** (toàn bộ, không phải mẫu con): lấy full text thật của từng Điều "được cứu" từ Chroma, đối chiếu tay với câu hỏi — **10/10 khớp đúng nội dung thật**, không có case "khớp giả" (similarity gần nhưng nội dung lệch).
-  - **Held-out split-half**: chia 32 câu thành 2 nửa xen kẽ, đo riêng từng nửa — Nửa A: 75.0%→93.8%, Nửa B: 43.8%→87.5%. Cải thiện nhất quán ở CẢ HAI nửa, không phải overfitting vào vài case ngoại lệ.
-- [x] **Quyết định: hạ `SIMILARITY_THRESHOLD` 0.75 → 0.65**, ghi đầy đủ lý do vào `research.md` ADR-004 (Điều 6 constitution). Đã cập nhật `app/config.py`, `.env`, `.env.example`. Cập nhật 2 test bị ảnh hưởng (`test_config.py` assert default mới; `test_entry_point.py` ghim tường minh threshold=0.75 qua monkeypatch thay vì phụ thuộc ngầm vào default toàn cục — tránh lặp lại vỡ test ở lần hiệu chỉnh threshold sau này). 199/200 toàn bộ suite (1 fail cũ không liên quan, artifact `.env` cục bộ của Khang).
-- [x] **Xác nhận cuối**: chạy lại `eval_graph_recall.py` với config mặc định thật (không override env) → đúng 90.6%/93.1%/0.917 — số liệu chính thức dùng cho so sánh Phase 4 (T018) với Hybrid+Reranker.
-- [ ] **Chờ**: D2 (research.md, action item cũ) — baseline Hybrid+Reranker cần đo lại ở đúng quy mô 67k trước khi so sánh chính thức (nếu project trước chưa từng đo ở quy mô này).
-
-## 7. 🔗 ĐỢT 10 — T013 relation_llm.py (AMENDS/SUPERSEDES/CONFLICTS_WITH) + phát hiện bug slug thật (2026-08-06)
-
-- [x] **T013 code xong, TDD đầy đủ**: `app/extraction/relation_llm.py` (candidate narrowing rule-based — trigger phrase (sửa đổi/bổ sung, thay thế, bãi bỏ/hết hiệu lực/trái với/mâu thuẫn với) PHẢI cùng câu với một trích dẫn CÓ TÊN VĂN BẢN ĐÍCH rõ ràng, tái dùng nguyên `reference_extractor.extract_references` — Điều 1, không duplicate regex; + LLM confirmation qua Ollama `classify_candidate`/`_call_ollama`, cùng API shape đã verify ở `serving/api.py`) + `app/graph_store/upsert.py` (`upsert_relations` — 1 Cypher query/loại quan hệ vì Cypher relationship TYPE không tham số hoá được, whitelist cố định, cùng cơ chế external-reference placeholder với `upsert_references`) + `scripts/extract_relations.py` (CLI orchestration, 1-pass, không cần checkpoint — giống `extract_terms.py` nhưng đơn giản hơn vì không có phụ thuộc thứ tự file). 41 test mới (15 relation_llm + 19 upsert + 7 CLI orchestration), 228/229 toàn bộ suite (1 fail cũ không liên quan, biến môi trường `INGEST_BATCH_SIZE` cục bộ của Khang).
-- [x] **Chạy thật đã verify end-to-end** (3000 file đầu, Neo4j + Ollama thật, không mock): 2 candidate tìm được, cả 2 được LLM xác nhận AMENDS kèm `confidence`/`ly_do` hợp lý, ghi đúng vào Neo4j (đối chiếu trực tiếp bằng Cypher `MATCH (s)-[r:AMENDS]->(t) RETURN ...`).
-- [x] **Phát hiện thật quan trọng #1 — độ phủ candidate RẤT THẤP**: chỉ 2 candidate/3000 file (ước tính ~40/61k file toàn corpus). Nguyên nhân xác nhận bằng khảo sát thật trên mẫu 5000 file: trigger phrase và trích dẫn-có-tên-văn-bản phải nằm CÙNG một câu — nhưng câu mở đầu sửa đổi thường viết "Điều N **của** Luật/Nghị định..." (497/5000 file, ~10%) hoặc "Nghị định/Thông tư **số** N/YYYY/..." (579/5000 file, ~11.6%) — cả hai dạng đều KHÔNG khớp `reference_extractor._DOC_NAME_PATTERN` (pattern hiện tại yêu cầu tên văn bản đứng NGAY sau "Điều N", không có "của"/"số" xen giữa). Đây là giới hạn CÓ SẴN của `reference_extractor.py` (dùng chung cho toàn bộ REFERENCES, không phải lỗi riêng T013) — **chưa sửa** (ngoài phạm vi T013, ảnh hưởng ngược tới 37,875 REFERENCES edge hiện có nếu sửa — cần quyết định riêng, rủi ro/lợi ích khác hẳn quy mô một task).
-- [x] **Phát hiện thật quan trọng #2 — bug thật, có sẵn từ trước T013, ảnh hưởng TOÀN BỘ graph REFERENCES**: `target_article_id` khi trích dẫn nêu tên văn bản (`slugify_doc_name("Thông tư 19/2016/TT-BXD")` → `thong-tu-19-2016-tt-bxd`) KHÔNG khớp `doc_id` thật được ingest từ TÊN FILE (`slugify_doc_name("19_2016_tt-bxd")` → `19-2016-tt-bxd`, không có tiền tố loại văn bản) — vì `app/ingest.py` lấy `doc_id` từ tên file, còn `reference_extractor.py` lấy slug từ CHÍNH VĂN BẢN trích dẫn (có kèm "Thông tư"/"Nghị định"...). Hậu quả: một số trích dẫn chéo văn bản bị coi là "external reference placeholder" (`is_external=true`) dù nội dung THẬT SỰ đã có trong corpus đã ingest (có `chroma_id`, embed đầy đủ) — retrieval/`/chat` sẽ báo sai "không có trong dữ liệu đã ingest". **Đo thật trên toàn bộ 8,427 external placeholder hiện có**: 118 (~1.4%) là "external giả" — xác nhận bằng cách so khớp phần đuôi slug sau khi bỏ 8 tiền tố loại văn bản phổ biến (Bộ luật/Luật/Pháp lệnh/Nghị định/Nghị quyết/Quyết định/Thông tư/Chỉ thị) với danh sách 3,203 `doc_id` thật đã ingest. ~1.4% không phải thảm hoạ nhưng là lỗi âm thầm thật, không phải giả định — **cần Khang quyết**: có đáng sửa `reference_extractor.py`/`app/ingest.py` để 2 nơi tính slug NHẤT QUÁN không (ảnh hưởng cả REFERENCES cũ lẫn AMENDS/SUPERSEDES/CONFLICTS_WITH mới), hay chấp nhận ở quy mô ~1.4% hiện tại.
-- [x] **Chưa chạy full corpus** — 2 candidate/3000 file đã ghi thật vào Neo4j, phần còn lại (~58k file, ước tính thêm ~38 candidate/LLM call, rất rẻ vì candidate narrowing lọc gần hết trước khi gọi LLM) để Khang tự chạy khi quyết xong 2 điểm phát hiện ở trên: `python -m scripts.extract_relations data/raw` (không cần `--limit`, không cần checkpoint — an toàn chạy lại nếu bị ngắt, MERGE-based).
-- [x] **T017 chạy lại sau T013 — số liệu Y NGUYÊN 90.6%/93.1%/0.917**: ĐÚNG NHƯ DỰ ĐOÁN, không phải regression — `app/retrieval/traversal.py` CHỈ traverse cạnh `REFERENCES`/`DEFINES` (xem `_TRAVERSAL_QUERY`), KHÔNG bao gồm AMENDS/SUPERSEDES/CONFLICTS_WITH. 3 loại quan hệ mới này là metadata về lịch sử văn bản (T013/FR-003), KHÔNG phải một phần của đường truy hồi multi-hop được T017 đo (đó là REFERENCES, User Story 1). Muốn AMENDS/... ảnh hưởng Recall@k cần một quyết định/task riêng (mở rộng `traversal.py` sang các cạnh này) — KHÔNG nằm trong phạm vi T013 theo `tasks.md`/`data-model.md`.
-
-## 8. 🔧 ĐỢT 11 — Chốt 5 điểm treo: T012b + T025 + T026 + T027 (2026-08-06)
-
-> Khang chốt cả 5 điểm chờ duyệt. Chi tiết từng bước đỏ→xanh: `BAO_CAO_CHI_TIET_PHIEN_LAM_VIEC.md` phần "PHIÊN LÀM VIỆC 2026-08-06 (buổi 2)".
-
-- [x] **Commit dọn dẹp ĐỢT 9-10** (trước đó toàn bộ untracked): 3 commit — T013, T017+ADR-004, docs. Đã kiểm `git check-ignore .env` xác nhận không lọt secret.
-- [x] **T012b — mở rộng độ phủ định nghĩa, KHÔNG cần LLM** (trả lời câu hỏi F2 của Khang): nguyên nhân thật của phần bỏ sót là `_ENUM_TRIGGER_RE` chỉ khớp `"được hiểu như sau"`, nhưng **263 file** có heading `Điều N. Giải thích từ ngữ` mà không có cụm đó. Thêm 1 trigger → **Term 5,352→6,104 · DEFINES 6,005→6,872 · USES_TERM 108,723→113,888** (kiểm chứng trực tiếp trong Neo4j). Đã kiểm rủi ro false positive trước khi chốt: 1,039 file chứa cụm này, 18 file có cụm **không** ở dòng đầu (heading tách dòng / nằm trong trích dẫn sửa đổi) — đọc tay toàn bộ 137 định nghĩa của nhóm này, **đều hợp lệ**. Cố tình KHÔNG phủ 5,707 file có cấu trúc `N. X là ...` nhưng không trigger nào (danh sách điều kiện/thủ tục). **Chi phí: 1 dòng regex, ~0 đồng, 0 GPU** — so với LLM fallback ước tính 35–85 giờ GPU + tranh VRAM + rủi ro hallucination. → **T012 đóng.**
-- [x] **Bug hiệu năng thật phát hiện khi chạy thật** (constitution Điều 7): `extract_terms.py` chạy **hơn 50 phút chưa xong** (lần trước với 5,352 thuật ngữ đã xong). Nguyên nhân đọc code xác nhận: `extract_term_usages_rule_based` gọi `re.compile` **trong vòng lặp** từng thuật ngữ, chạy cho mỗi Article = ~419 triệu lượt; cache regex nội bộ Python chỉ 512 pattern nên 6,900 pattern làm thrash → recompile gần như mọi lượt. Fix (ngữ nghĩa giữ nguyên chính xác): `lru_cache` cho `_compile_term_pattern` + tiền lọc `ten not in text` trước regex. **Từ >50 phút xuống ~8,5 phút.**
-- [x] **T025 — `Document.title`/`so_hieu`/`loai_vb`** (`app/extraction/doc_identity.py` mới). Phát hiện quyết định khi khảo sát: **corpus KHÔNG chứa tiêu đề văn bản ở đâu cả** (dataset Zalo trả về từng Điều riêng lẻ; `# {title}` trong file là tiêu đề **Điều**) → chỉ suy được từ **tên file** (3,206/3,207 khớp `{số}_{năm}_{mã-hiệu}`). Bảng mã hiệu → loại văn bản đo thật: `tt` 1,867 · `nđ` 849 · `ttlt` 218 · `qđ` 174; **`qh10-qh14` (98 văn bản) trả về `None` CÓ CHỦ ĐÍCH** — mã hiệu Quốc hội dùng chung cho Luật/Bộ luật/Nghị quyết/Pháp lệnh, không phân biệt được nên không đoán. **Hạn chế ghi rõ, không bịa**: `title` là **chỉ danh chuẩn** ("Thông tư 19/2016/TT-BXD"), KHÔNG phải tiêu đề văn xuôi — tiêu đề đó không tồn tại trong dữ liệu nguồn. `ngay_hieu_luc`/`source_file` vẫn chưa set.
-- [x] **Bug thật TDD bắt được ở T025 — chữ `ð` (eth U+00F0)**: 4 văn bản thật (`102_2017_nð-cp`, `146_2018_nð-cp`, `81_2016_nð-cp`, `89_2016_nð-cp` = **119 Article**) dùng chữ eth, khác hoàn toàn `đ` U+0111 nên `slugify_doc_name` strip mất → `doc_id` thành `102-2017-n-cp`. Đã fix phần nhận diện `loai_vb` (`_normalize_eth`), **CỐ TÌNH GIỮ NGUYÊN `doc_id`** + ghim bằng test tường minh — đổi `doc_id` = đổi `article_id`, mà `article_id` **chính là id trong Chroma** → phải embed lại 119 Article. Rẻ (~11s GPU) nhưng là thao tác trên **khoá định danh** dữ liệu thật, cần Khang quyết riêng (xem mục H2 trong checklist).
-- [x] **T026 — gộp mục 2 và 3 của Khang làm MỘT** (cùng nguyên nhân gốc: không có bộ resolve `doc_id` chuẩn hoá). **Bug nghiêm trọng hơn con số 1,4% đã báo cáo ở ĐỢT 10**: đo thật toàn bộ 61,069 file — regex cũ bắt **115,563** trích dẫn `Điều N` nhưng **chỉ 547 (0,47%)** resolve được cross-document; 115,016 còn lại bị coi là self-reference, trong đó **14,621 (12,7%) trỏ tới Điều KHÔNG TỒN TẠI** trong chính văn bản đó = bằng chứng trực tiếp của resolve sai. Ba nguyên nhân: `Điều N **của** <Loại>` (10,745 lần/5,889 file), `<Loại> **số** N/YYYY/MÃ` (6,417/3,623), `<Loại> <tên> <số hiệu>` (252/151); cộng thêm `Thông tư liên tịch` (218 văn bản) chưa bao giờ được nhận diện.
-- [x] **Đã thử và LOẠI phương án mine từ điển "tên văn bản → số hiệu"** (ghi lại để không ai thử lại): 387 tên phân biệt, 319 đơn nghĩa, nhưng chỉ **86** đơn nghĩa khớp doc thật; và các tên quan trọng nhất **thực sự đa nghĩa** — `Luật Chứng khoán` có 3 phiên bản (2019/2006/2010), `Luật Doanh nghiệp` có 2. Chọn bừa một phiên bản là **sai về pháp lý** → 30,024 trích dẫn chỉ nêu tên (15,433 file) vẫn không resolve tự động.
-- [x] **Kiểm tra rủi ro leading zero trước khi thiết kế**: 592/3,203 `doc_id` có số bắt đầu bằng `0`, nhưng đo 6,767 trích dẫn → **0 trường hợp** cần chuẩn hoá. Corpus viết số hiệu nhất quán với tên file → không thêm logic chuẩn hoá (thêm sẽ sinh `5-2017-...` không bao giờ khớp).
-- [x] **Dry-run T026 toàn corpus, KHÔNG ghi DB**: edge duy nhất 37,875 (**khớp chính xác** số thật trong Neo4j — bằng chứng dry-run mô phỏng đúng) → **38,300**. Bản chất là **ĐỔI CHỖ**, không phải chỉ thêm: **2,594 edge cross-doc đúng** được thu hồi, đồng thời **2,912 edge self-ref sai** bị loại (gồm cả self-loop vô nghĩa `X_dieu-13 -> X_dieu-13`). Ví dụ thật: `"Điều 10 Nghị định số 16/2010/NĐ-CP"` trước đây resolve thành Điều 10 của **chính** Thông tư đó.
-- [x] **Regression thật khi chạy full suite**: `test_relation_llm.py` đỏ 1 assert — `find_relation_candidates` (T013) **tái dùng nguyên** `extract_references` nên thừa hưởng fix. Đây là **mục đích** của việc tái dùng (Điều 1), không phải lỗi. **270/271 test pass** (1 fail cũ `.env` cục bộ).
-- [x] **T027 — script migration `scripts/migrate_references.py`** (mặc định DRY-RUN, phải `--apply` mới ghi — script duy nhất trong dự án xoá dữ liệu thật). Cần migration riêng vì `upsert.py` dùng MERGE: edge sai cũ **không tự biến mất**, chạy lại ingest sẽ cho graph chứa **cả** edge đúng lẫn edge sai — tệ hơn trước khi sửa. 4 bước thứ tự bắt buộc: xoá REFERENCES (`IN TRANSACTIONS OF 10000 ROWS`) → xoá placeholder **mồ côi** (`COUNT { (a)--() } = 0`, KHÔNG `DETACH DELETE` vì placeholder đang là đích AMENDS của T013) → **reset checkpoint** (bỏ bước này thì `run_ingest` thấy checkpoint cũ và không làm gì → graph mất hết REFERENCES trong im lặng) → re-ingest. Đã verify Cypher bằng `EXPLAIN` trên Neo4j 5.26.28 thật. 8/8 test.
-- [ ] ⏸️ **CHƯA CHẠY `--apply`** — đã hỏi Khang, chưa nhận trả lời. Graph giữ nguyên: 37,875 REFERENCES cũ (gồm 2,912 edge self-ref sai), 8,427 placeholder, `Document.so_hieu` = 0. Lệnh khi sẵn sàng: `python -m scripts.migrate_references data/raw --apply`
-- [x] **Kiểm tra rủi ro bộ eval trước khi đề xuất migration**: 26/32 câu có `relationship_path`; **2 câu** (`mh-014`, `mh-030`) có bước REFERENCES không còn tồn tại sau T026 — `mh-030` chính là chuỗi self-ref **sai** đã phát hiện, tức `relationship_path` của câu đó vốn dựng trên edge **không tồn tại thật**. T017 chấm theo `expected_article_ids` (không theo `relationship_path`) nên có thể vẫn pass — cần đo lại sau migration mới biết.
-- [x] **"1 fail cũ không liên quan" hoá ra LÀ lỗi thật của test — đã sửa, suite giờ 281/281.** Ghi nhận này lặp lại suốt từ ĐỢT 5 đến ĐỢT 11 (các dòng "1 fail cũ `.env` cục bộ" ở trên giữ nguyên làm dấu vết lịch sử) và **đã sai ở hai điểm**: (a) nó không phải "artifact môi trường của máy Khang" mà là **test thiếu cô lập**; (b) nó không "không liên quan" — `test_defaults_load_correctly` đang **không hề kiểm giá trị mặc định trong code**, tức mất tác dụng bảo vệ, và bất kỳ ai lỡ đổi default trong `app/config.py` cũng sẽ không bị bắt. **Nguyên nhân thật**: helper `_reload_with_clean_env` gọi `monkeypatch.delenv` xoá biến env, nhưng ngay sau đó `importlib.reload` **chạy lại `load_dotenv()` ở module level** của `app/config.py` — nạp ngược giá trị từ `.env` vào `os.environ` **trước khi** các dòng `os.getenv(...)` chạy, nên `INGEST_BATCH_SIZE=3` của máy dev thắng default `200` → `assert 3 == 200`. **Fix**: monkeypatch `load_dotenv` thành no-op trong helper; phải patch trên module **`dotenv`** chứ không phải `config_module.load_dotenv`, vì `app/config.py` dùng `from dotenv import load_dotenv` nên mỗi lần reload nó gán lại tên đó từ module `dotenv` — patch đặt trong `app.config` sẽ bị chính lần reload kế tiếp ghi đè mất (bẫy dễ tái phạm, đã ghi vào docstring). **KHÔNG đổi `app/config.py`**: `load_dotenv()` ở production là hành vi đúng, vấn đề nằm ở chỗ test. **Kiểm chứng**: tạo `.env` đặt **mọi** biến lệch default (`MAX_HOP=9`, `SIMILARITY_THRESHOLD=0.11`, `NEO4J_URI=bolt://evil:9999`, ...) → vẫn 281/281 pass.
-- [x] **Phát hiện phụ khi kiểm chứng — `EMBEDDING_MODEL` không thể đặt tuỳ ý qua `.env`**: `test_real_model_and_chroma_confirms_distance_to_similarity_conversion` load model embedding **thật**, nên giá trị lạ trong `.env` làm test đỏ ngay (`LocalEntryNotFoundError`, do `HF_HUB_OFFLINE` bật từ ĐỢT 5). Không phải lỗi cô lập, nhưng cần biết trước khi ai đó đổi `EMBEDDING_MODEL` trong `.env`.
-
-## 9. 🔨 ĐỢT 12 — Khang chốt H1/H2/H3, fix chữ `ð`, chạy migration (2026-08-06, cùng ngày)
-
-> Chi tiết từng quyết định + từng lỗi đỏ: `BAO_CAO_CHI_TIET_PHIEN_LAM_VIEC.md` mục 11-17.
-
-- [x] **Khang chốt cả 3 điểm chờ bằng "làm theo đề xuất"**: H1 chạy migration · H2 sửa `doc_id` cho 4 văn bản `ð` · H3 đo lại rồi mới xét 2 câu eval.
-- [x] **Quyết định về thứ tự (không được hỏi nhưng ảnh hưởng lớn)**: làm H2 **trước** H1. Fix `ð` đổi `doc_id` → đổi `article_id`; nếu migration trước rồi mới fix thì phải re-ingest **hai lần** (mỗi lần ~2h) thay vì một lần.
-- [x] **Fix chữ `ð` (eth) — chọn sửa tại `slugify_doc_name` chứ không sửa ở caller**: đó là điểm DUY NHẤT biến tên văn bản thành slug, nên cả đường tên-file (`app/ingest.py`) và đường trích dẫn (`doc_identity.build_doc_identity`) tự động nhất quán; sửa ở caller chỉ sửa một nửa và để lại chính cái bất nhất đang cần sửa. Đã xoá `_normalize_eth` cục bộ trong `doc_identity.py` (Điều 1 — không duplicate), nhưng **vẫn export `normalize_eth`** vì chuỗi `so_hieu` HIỂN THỊ không đi qua slugify (nếu không, title hiện `"102/2017/NÐ-CP"` sai chữ).
-- [x] **Pinning test cho hạn chế có chủ đích đã hoạt động đúng ý định**: test `..._intentionally_differs_...` viết ở ĐỢT 11 kèm ghi chú "nếu Khang quyết sửa thì test này sẽ đỏ và bắt buộc phải đọc ghi chú" — nó **đã đỏ đúng như dự kiến** (`assert '102-2017-n-cp' == '102-2017-nd-cp'`), buộc đảo lại tường minh thay vì đổi khoá định danh trong im lặng. Nên tiếp tục dùng cách này cho các hạn chế cố ý khác.
-- [x] **Kiểm tra rủi ro TRƯỚC khi chạy — fix `ð` làm 2 cặp văn bản gộp lại**: dry-run báo 3,201 doc_id (thay vì 3,203). Nguy hiểm thật: nếu nội dung 2 file gộp khác nhau, `detect_and_dedupe_collisions` sẽ raise `ArticleIdCollisionError` và **dừng toàn bộ migration** giữa đường. Đã quét thật: 6 doc_id gộp từ 2 prefix (chỉ **2** là mới do fix `ð`: `102-2017-nd-cp`, `146-2018-nd-cp`; 4 cặp còn lại vốn đã gộp từ trước — biến thể `nd`/`nđ`, `bgddt`/`bgdđt`), 500 article_id có >1 file, **0 trường hợp nội dung khác nhau** → dedup an toàn.
-- [x] **Tính trước số liệu kỳ vọng để verify sau** (không chờ chạy xong mới biết đúng/sai): **60,568 Article / 3,201 Document** (từ 60,679/3,203). Chênh 111 Article là ĐÚNG Ý NGHĨA, không phải mất dữ liệu — 111 Article đó vốn đã có bản trùng nội dung y hệt dưới `doc_id` biến thể `nđ`. Suy ra chỉ **8 Article** (`81-2016-nd-cp` 2 + `89-2016-nd-cp` 6) là doc_id hoàn toàn mới cần backfill embedding (~1s GPU, không phải 11s như ước tính ban đầu).
-- [x] **Phát hiện Khang đã tự chạy `--apply` lúc 15:45:05** (đọc command line qua `Get-CimInstance Win32_Process`, không đoán) — batch 4,610/20,356 ≈ 23%, `batch_size=3` lấy từ `.env`. **Quyết định dừng tiến trình đó**: (1) nó nạp code lúc 15:45, TRƯỚC khi fix `ð` xong (Python nạp module một lần lúc khởi động) nên không thể ra trạng thái cuối đúng; (2) để chạy hết rồi migration lại = 1h30 + 2h = 3h30, dừng và chạy lại = 2h; (3) dừng giữa chừng an toàn theo thiết kế (MERGE-idempotent + lần chạy mới reset checkpoint). Đã kiểm tra trước khi commit: `app/ingest.py` import toàn bộ ở module level nên sửa file KHÔNG ảnh hưởng tiến trình đang chạy.
-- [x] ⚠️ **LỖI CỦA CLAUDE, đã hỏng thật trên dữ liệu thật**: `_delete_from_chroma` import `get_or_create_collection` từ `app/retrieval/embedder.py` — **tên không tồn tại** (tên đúng: `get_chroma_collection`; `get_or_create_collection` là method của `chromadb.Client`). Crash **sau** khi đã xoá 4 Document + 119 Article khỏi Neo4j nhưng **trước** khi xoá bản ghi Chroma → để lại **119 bản ghi Chroma mồ côi** (Chroma 60,679 vs Neo4j 60,560, đã probe xác nhận 4/4 id mẫu còn sót).
-  - **Vì sao test không bắt được (gốc rễ)**: mọi test đều **inject** `delete_from_chroma` → **đường code mặc định chưa bao giờ được chạy**. Điểm mù kinh điển của dependency injection: test xanh 100% mà implementation thật thì sai.
-  - **Quyết định: đổi hẳn CƠ CHẾ, không chỉ sửa tên hàm.** Lý do quan trọng hơn bản thân bug: cơ chế "lấy article_id của Document cũ rồi xoá đúng những id đó" **tự nó không thể tự sửa** — một khi Document cũ đã bị xoá khỏi Neo4j thì lần chạy sau KHÔNG CÒN cách nào biết id nào cần xoá (đúng tình huống vừa xảy ra). Thay bằng `reconcile_chroma_with_neo4j`: xoá mọi bản ghi Chroma không ứng với Article thật trong Neo4j — **idempotent, tự sửa mọi kiểu lệch**, chạy ở bước CUỐI (sau re-ingest). Verify trước khi dùng: `collection.get(include=[])` lấy 60,679 id trong 0,92s, không kéo embedding về.
-  - **Test chống tái phạm**: `test_default_chroma_collection_getter_exists_in_embedder` dùng `inspect.getsource` kiểm chính đường mặc định mà các test khác luôn inject bỏ qua.
-- [x] **Hai guard chống thảm hoạ** (có test tường minh): `real_doc_ids` rỗng (sai `data_dir`) → từ chối chạy, nếu không thì MỌI Document bị coi là cũ và bị xoá sạch; tỉ lệ stale > 5% → từ chối + in 10 doc_id đầu (đo thật chỉ 0,12% nên con số lớn gần như chắc chắn là lỗi lập trình). Guard thứ hai đã tự chứng minh: fixture test ban đầu dùng tỉ lệ 1/2 = 50% nên chạm guard và đỏ ngay.
-- [x] **"1 fail cũ không liên quan" hoá ra LÀ lỗi thật của test** — task nền (Khang bấm chạy) đã sửa xong. Ghi nhận này lặp lại suốt từ ĐỢT 5 đến ĐỢT 11 và **sai ở hai điểm**: không phải artifact môi trường mà là **test thiếu cô lập**, và không "không liên quan" vì `test_defaults_load_correctly` thực chất **không hề kiểm giá trị mặc định trong code** (mất tác dụng bảo vệ). Nguyên nhân: `importlib.reload` chạy lại `load_dotenv()` ở module level, nạp ngược `.env` của máy dev vào trước khi `os.getenv` chạy. Suite từ đây **xanh sạch**.
-- [ ] ⏳ **Migration đang chạy**: `INGEST_BATCH_SIZE=200 python -m scripts.migrate_references data/raw --apply`. Đã xong bước 1-3 (REFERENCES xoá sạch, 4 Document `ð` xoá, placeholder mồ côi xoá — còn 2 là đích AMENDS, giữ đúng theo thiết kế). Đang ở bước 5/6 (re-ingest). Đo nhịp thật: 1,000 file/108,6s ≈ 552 file/phút → ETA ~1h50.
-
-## 10. ✅ ĐỢT 13 — Migration T027 HOÀN TẤT + phát hiện lớn về đóng góp của traversal (2026-08-07)
-
-- [x] **Migration T027 chạy xong hoàn toàn** (`--resume` từ batch 115, tổng 303 batch). Docker Desktop phải khởi động lại thủ công (lặp lại sự cố ĐỢT 8 — không phải lỗi code). Pre-flight `detect_and_dedupe_collisions` mất ~2 phút vì cache đĩa nguội sau khi khởi động máy (đọc + giữ toàn bộ 61k nội dung file trong RAM, ~320MB).
-- [x] **Verify khớp CHÍNH XÁC bảng số liệu đã tính trước khi chạy** — đây là giá trị của việc tính trước:
-
-  | Chỉ số | Kỳ vọng | Thực tế | |
-  |---|---|---|---|
-  | Document | 3,201 | **3,201** | ✅ |
-  | Article thật | 60,568 | **60,568** | ✅ |
-  | Article thiếu `chroma_id` | 8 | **8** | ✅ |
-  | Chroma mồ côi bị xoá | 119 | **119** | ✅ |
-  | Term / AMENDS | 6,104 / 2 | **6,104 / 2** | ✅ giữ nguyên |
-  | REFERENCES | ~38,300 | 38,196 | chênh 104 — giải thích được |
-
-  Chênh 104 edge: dry-run chạy **trước** fix `ð` nên 2 cặp văn bản chưa gộp, đếm dư. Đúng chiều dự kiến, không phải lỗi.
-- [x] **`Document.title` giờ có thật**: `01-2009-tt-bnn` → `"Thông tư 01/2009/TT-BNN"`. Văn bản Quốc hội đúng thiết kế: `01-2011-qh13` → title chỉ là `"01/2011/QH13"`, `loai_vb=None` (không đoán). Đúng **1** Document không có `so_hieu` — `21-lct-hdnn8`, chính là doc_prefix duy nhất không khớp dạng `{số}_{năm}_{mã}`.
-- [x] **Backfill 8 Article mới** (~6s GPU). Xác nhận 3 chiều: Neo4j Article thật = Neo4j có `chroma_id` = Chroma count = **60,568**, khớp tuyệt đối.
-- [x] **T017 chạy lại: 90.6% / 93.1% / 0.917 — Y NGUYÊN, 0/32 câu đổi kết quả.** Đối chiếu từng câu với fixture cũ trong git, không chỉ so 3 con số tổng.
-- [x] **H3 có câu trả lời, KHÔNG cần sửa bộ eval**: `mh-030` **vốn đã fail từ TRƯỚC** migration (`all_found=False` ở cả hai lần đo) → `relationship_path` sai của nó chưa bao giờ ảnh hưởng điểm. `mh-014` pass cả hai lần. 3 câu vẫn fail: `mh-012`, `mh-013`, `mh-030`. ⚠️ Vẫn nên sửa **metadata** `relationship_path` của `mh-030` vì nó mô tả một chuỗi REFERENCES không tồn tại thật — lỗi tài liệu, không phải lỗi điểm số.
-- [x] 🚨 **PHÁT HIỆN LỚN — traversal gần như KHÔNG đóng góp vào Recall**. Việc điểm số không nhúc nhích dù migration đổi 2,594 edge đúng + loại 2,912 edge sai là tín hiệu đáng ngờ, nên đã đo tách bạch đóng góp của từng tầng trên 58 `expected_article_id`:
-
-  | Nguồn tìm ra | Số lượng | Tỉ lệ |
-  |---|---|---|
-  | Entry point (**dense thuần**, Chroma) | 53 | **91,4%** |
-  | **CHỈ** tìm được qua traversal | **1** | **1,7%** |
-  | Không tìm thấy | 4 | 6,9% |
-
-  **Strict recall chỉ dùng dense = 87,5%; có traversal = 90,6%.** Toàn bộ graph traversal đóng góp **+3,1 điểm %, đúng 1 câu** (`mh-011`).
-
-  Đây là vấn đề **trực tiếp với luận điểm cốt lõi của dự án** (User Story 1: "năng lực khác biệt cốt lõi của Graph RAG so với Hybrid RAG cũ"). Bộ 32 câu eval tuy soạn từ chuỗi REFERENCES thật, nhưng câu hỏi lại chứa đủ manh mối ngữ nghĩa để dense tìm thẳng ra **cả hai** Điều — nên không thực sự kiểm tra khả năng multi-hop. **Cần Khang quyết trước khi làm T018** (xem checklist mục I1) — trình bày T018 kiểu gì cũng phải trung thực với con số này.
-
-## 11. 🔬 ĐỢT 14 — Đo backend BM25 thật ở 61k, chốt dùng `rank_bm25` cho T018 (2026-08-08)
-
-> Kết quả thô lưu tại `scripts/quality_fixtures/bm25_backend_bench_61k.txt`.
-
-- [x] **Chạy `scripts/bench_bm25_backends.py` full: 61,068 tài liệu / 793 câu gold Zalo / k=4.** Đọc corpus 315s, tokenize 18,47 triệu token trong 11s (dùng CHUNG cho mọi backend nên so sánh công bằng).
-
-  | Backend | index | 793 truy vấn | ms/truy vấn | Recall@4 | MRR | Khớp `rank_bm25` | Tăng tốc |
-  |---|---|---|---|---|---|---|---|
-  | `rank_bm25` (dự án cũ) | 2,4s | **278,7s** | 351,4 | 58,0% | 0,412 | — | 1,0x |
-  | `bm25s:robertson` | 4,3s | 0,7s | 0,9 | 55,7% | 0,405 | 57,8% | 388x |
-  | `bm25s:lucene` | 4,0s | 0,8s | 1,0 | **64,3%** | 0,475 | **66,2%** | 357x |
-  | `bm25s:atire` | 4,3s | 0,8s | 0,9 | 64,3% | 0,475 | 66,2% | 372x |
-  | `bm25s:bm25l` | 4,6s | 0,8s | 0,9 | **64,4%** | **0,477** | 66,1% | 372x |
-
-- [x] **Ba kết luận, hai trong đó NGƯỢC dự đoán ban đầu của Claude** (ghi lại để lần sau bớt tin ước lượng chưa đo):
-  1. **Tốc độ KHÔNG phải lý do đổi backend**: `rank_bm25` ở 61k chỉ mất **4,6 phút** cho 793 câu. Ước lượng ban đầu "có thể vài giờ" là SAI — và nếu không đo thì đã dẫn tới quyết định đổi backend không cần thiết.
-  2. **`robertson` KHÔNG bám `rank_bm25` sát nhất** dù `rank_bm25.BM25Okapi` chính là biến thể Robertson — nó tệ nhất cả về khớp thứ hạng (57,8%) lẫn Recall (55,7%, THẤP HƠN `rank_bm25`). Nguyên nhân gần như chắc chắn: `rank_bm25` chặn IDF âm bằng `epsilon=0.25`, `bm25s` thì không.
-  3. **Các biến thể `bm25s` khác cho Recall CAO HƠN rõ rệt**: 64,3–64,4% vs 58,0% = **+6,3 điểm %** — không chỉ "khác" mà "tốt hơn". Nhưng khớp thứ hạng chỉ ~66% → **không phải thay thế trong suốt**, đúng như cảnh báo trước khi đo.
-- [x] ~~**CHỐT: dùng `rank_bm25`** cho dòng baseline Hybrid+Reranker @67k~~ — ⚠️ **KẾT LUẬN NÀY ĐÃ ĐƯỢC ĐÍNH CHÍNH cùng ngày, xem ĐỢT 15.** Lý lẽ ban đầu: phương án (b) trong G1 là "phát triển thêm so với dự án cũ" nên phải **cùng implementation**, chỉ khác quy mô. Lý lẽ đó **bỏ sót một điều**: chính README dự án cũ viết *"cần đổi backend nếu scale vượt 10k văn bản"* — nên chạy `rank_bm25` ở 61k là chạy đúng cấu hình mà dự án cũ đã **tự tuyên bố không phù hợp**. Giữ nguyên dòng gạch ngang này để thấy quá trình suy nghĩ, không xoá.
-- [x] **Phần `bm25s` báo cáo như PHÁT HIỆN KỸ THUẬT RIÊNG** (không trộn vào bảng so sánh chính): README dự án cũ ghi *"cần đổi backend nếu scale vượt 10k văn bản"* — dự án này **đo được con số cụ thể** cho khuyến nghị đó (351ms/truy vấn ở 61k; backend thay thế nhanh hơn ~360x kèm +6,3 điểm % Recall). Đây là câu chuyện tốt cho README/CV: dự án trước nêu hạn chế, dự án sau lượng hoá nó.
-- [x] ⚠️ **Đọc bảng đúng cách**: 58,0% là **BM25 ĐƠN THUẦN**, KHÔNG so được với 93,3% của dự án cũ (đó là Hybrid = BM25 + dense + reranker). Đừng đặt hai số này cạnh nhau.
-- [x] `requirements/bench.txt` giữ cả hai thư viện (`rank-bm25==0.2.2` để chạy baseline, `bm25s==0.3.10` để tái lập phép đo này). 322/322 test pass.
-
-## 12. 📊 ĐỢT 15 — T018 baseline Hybrid+Reranker @67k: bắt được số liệu sai trước khi nó vào báo cáo (2026-08-08)
-
-- [x] **Phát hiện phiên trước đã làm gần xong T018 (b)**: `scripts/eval_hybrid_reranker_baseline.py` (409 dòng) + test (157 dòng) tồn tại nhưng **chưa commit** (untracked từ đầu phiên), kèm checkpoint chứa số liệu thật. Đã commit lại đầy đủ.
-- [x] ⚠️ **LỖI GIT CỦA CLAUDE**: dùng `git add -A` nên quét luôn các file chưa từng review — đúng điều mà skill `git-sync-helper` cảnh báo (*"add CÓ CHỌN LỌC, tránh `git add -A` mù quáng"*). Hậu quả: commit lẫn file checkpoint tạm. Đã sửa bằng `git rm --cached` + thêm `scripts/quality_fixtures/_*checkpoint.json` vào `.gitignore` (khớp quy ước dự án cũ vốn đã ignore `_zalo_recall_checkpoint.json`, `_llm_judge_checkpoint_*.json`), rồi amend (chưa push nên an toàn).
-- [x] 🚨 **BẮT ĐƯỢC SỐ LIỆU SAI trước khi nó vào báo cáo.** Kết quả chạy đầu trông rất đẹp nhưng **không hợp lệ** — nhìn cột `total`:
-
-  | Chiến lược | Recall@4 | Đo trên |
-  |---|---|---|
-  | Dense-only | 82,0% | **793** câu |
-  | Hybrid RRF | 79,2% | **793** câu |
-  | Hybrid + Reranker | 92,0% | **50** câu ⚠️ |
-
-  Script tự in ba dòng cạnh nhau như thể so sánh được. Nguyên nhân: **checkpoint không ghi số câu hỏi**, nên lần resume với `--limit-queries` mặc định (50) đã bỏ qua 2 chiến lược đã xong ở 793 câu rồi đo chiến lược thứ 3 ở 50 câu. 92,0% trở thành con số vô nghĩa — **đúng loại sai lệch mà cả T018 đang cố tránh**.
-
-  Đây **đúng cùng lớp bug** dự án ĐÃ HỌC và ĐÃ CHẶN ở `app/ingest.py` (`BatchSizeMismatchError`). Áp dụng y nguyên nguyên tắc: `QuestionCountMismatchError` + `_check_question_count_matches_checkpoint` — **phát hiện và TỪ CHỐI chạy**, không tự động hoà giải. Đổi `--limit-queries` mặc định 50 → **toàn bộ gold set** (mặc định 50 là cái bẫy cho một script *baseline*).
-- [x] ⚠️ **LỖI SỬA NỬA VỜI của chính bản fix trên** (chạy thật mới lộ ra): đổi default của `run_eval` từ 50 → `None` nhưng **quên default của argparse** → argparse vẫn truyền 50 vào, ghi đè giá trị mặc định của hàm; checkpoint lại ghi `n_questions=50`. Test cũ chỉ kiểm signature của hàm nên **không bắt được**. Đã thêm `test_cli_default_matches_function_default_for_limit_queries` so **trực tiếp** default CLI với default hàm — chặn đúng lớp lỗi này.
-- [x] **Số liệu thật đủ 793 câu, corpus 67k (sau migration)**:
-
-  | Chiến lược @67k | Recall@4 | MRR |
-  |---|---|---|
-  | Dense-only | **82,1%** (651/793) | 0,668 |
-  | Hybrid (BM25+dense, RRF) | **79,2%** (628/793) | 0,609 |
-  | Hybrid + Reranker | đang chạy (560/793, 88,2% hit tạm) | |
-
-- [x] 🔍 **PHÁT HIỆN: Hybrid KÉM HƠN Dense-only ở 67k** (79,2% vs 82,1%) — **ngược hẳn dự án cũ ở 10k** (Hybrid tốt hơn Dense). Giải thích khớp chính xác với phép đo BM25 ở ĐỢT 14: BM25 đơn thuần ở 61k chỉ đạt 58–64%, nên RRF gộp một nhánh yếu vào nhánh dense mạnh thành ra **kéo xuống**. Đây là **bằng chứng định lượng** cho hạn chế mà README dự án cũ chỉ nêu định tính (*"cần đổi backend nếu scale vượt 10k"*) — giá trị kể chuyện tốt cho README/CV.
-- [x] **ĐÍNH CHÍNH kết luận ĐỢT 14 (backend BM25)**: chuyển từ "chốt `rank_bm25`" sang **giữ `bm25s`**. Lý do đổi ý: (1) chính README dự án cũ nói phải đổi backend khi vượt 10k, nên `bm25s` ở 67k mới là làm đúng khuyến nghị đó; (2) kết luận "Hybrid kéo xuống" còn đúng **mạnh hơn** với `rank_bm25` (BM25 yếu hơn nữa: 58,0% vs 64,3%), nên chọn `bm25s` là cách trình bày **thận trọng hơn** cho baseline, không phải cách tô hồng. Sẽ thêm một dòng Hybrid dùng `rank_bm25` (không reranker, ~5 phút) để **lượng hoá** ảnh hưởng của backend thay vì để nó thành biến gây nhiễu ẩn.
-
-## 13. 🏁 ĐỢT 16 — T018 CÓ SỐ LIỆU ĐẦY ĐỦ + phát hiện `SIMILARITY_THRESHOLD` làm mất 12,3 điểm % (2026-08-08)
-
-> Tất cả đo trên **cùng 793 câu Zalo gold**, **cùng metric Recall@4/MRR**, **cùng corpus 67k** — lần đầu tiên bảng so sánh thực sự hợp lệ (xem ADR-005).
-
-### Baseline mới, tự đo trong dự án này (hướng G1-b)
-
-| Chiến lược @67k | Recall@4 | MRR | Thời gian |
-|---|---|---|---|
-| Dense-only | **82,1%** (651/793) | 0,668 | ~17s |
-| Hybrid (`bm25s` + dense, RRF) | 79,2% (628/793) | 0,609 | ~18s |
-| Hybrid (`rank_bm25` + dense, RRF) | 78,6% (623/793) | 0,592 | ~297s |
-| **Hybrid + Reranker** | **87,6%** (695/793) | **0,751** | **3.920s (65 phút)** |
-
-### Graph RAG, cùng 793 câu
-
-| `SIMILARITY_THRESHOLD` | Recall@4 | Recall mở rộng | MRR | Ứng viên TB | Thời gian |
-|---|---|---|---|---|---|
-| **0.65** (production hiện tại) | 69,5% (551/793) | 72,5% (575/793) | 0,593 | 6,0 | 26s |
-| **0.0** (tắt lọc) | **81,8%** (649/793) | **87,5%** (694/793) | 0,676 | 10,2 | 26s |
-
-### 🚨 Phát hiện lớn nhất: bộ lọc `SIMILARITY_THRESHOLD` đang gây hại nhiều hơn lợi
-
-- Ngưỡng 0.65 làm **mất 12,3 điểm % Recall@4** (81,8% → 69,5%) và **15,0 điểm %** recall mở rộng.
-- ADR-004 hạ ngưỡng 0.75→0.65 dựa trên **32 câu** (kèm đọc tay 10/10 case + held-out split-half) — nhưng trên **793 câu** thì ngưỡng vẫn **quá gắt**. Bài học: hiệu chỉnh ngưỡng trên 32 câu không suy rộng được ra 793 câu, dù lúc đó đã kiểm split-half tử tế.
-- Với ngưỡng tắt, Graph RAG@4 = 81,8% ≈ Dense-only 82,1% → **xác nhận cùng nền retrieval**, toàn bộ chênh lệch trước đó do bộ lọc, không phải do graph.
-
-### 🔍 Hai kết quả đáng chú ý khác
-
-1. **Hybrid KÉM HƠN Dense-only** (79,2% vs 82,1%) — ngược dự án cũ ở 10k. Khớp với ĐỢT 14: BM25 đơn thuần ở 61k chỉ 58–64%, nên RRF gộp nhánh yếu vào nhánh dense mạnh thành ra kéo xuống. **Bằng chứng định lượng** cho hạn chế mà README dự án cũ chỉ nêu định tính.
-2. **Backend BM25 gần như không quan trọng sau khi fuse**: chênh 0,6 điểm % (79,2% vs 78,6%), dù dùng một mình thì chênh 6,3 điểm %. RRF hấp thụ gần hết khác biệt → toàn bộ tranh luận `bm25s` vs `rank_bm25` (ĐỢT 14 chốt một chiều, ĐỢT 15 tự đính chính) **hầu như không ảnh hưởng kết luận**.
-3. **Traversal đóng góp +5,7 điểm % / 45 câu** khi tắt ngưỡng (81,8% → 87,5%) — cao hơn hẳn "+3,1 điểm % / 1 câu" ở ĐỢT 13 (đo dưới bộ lọc, trên bộ 32 câu). Vẫn khiêm tốn nhưng có 45 lần nhiều bằng chứng hơn.
-4. **Recall mở rộng 87,5% ≈ Hybrid+Reranker 87,6%** nhưng **26s vs 3.920s (~150x rẻ hơn)**. ⚠️ Caveat bắt buộc nêu: 10,2 ứng viên so với 4 — không cùng thang đo, dù 10 ứng viên vẫn hợp lý làm context cho LLM.
-
-### Sự cố hạ tầng lặp lại (lần 3)
-
-Docker Desktop tự tắt giữa phiên → Neo4j `ServiceUnavailable`. Không phải lỗi code (lần 3 rồi: ĐỢT 8, ĐỢT 13, lần này). Khởi động lại Docker Desktop là xong, dữ liệu nguyên vẹn (60,568 Article).
-
-## 14. 🔬 ĐỢT 17 — T028: rà soát toàn tuyến embedding, thêm vector cấp Khoản + giới hạn ngữ cảnh (2026-08-10)
-
-> Chi tiết quyết định + phương án đã loại: `research.md` **ADR-006**.
-
-- [x] **Khang chốt GIỮ `SIMILARITY_THRESHOLD = 0.65`** (không hạ — ngưỡng thấp khó thuyết phục người khác), và yêu cầu rà soát toàn tuyến để tìm chỗ tối ưu. Điều này đổi bài toán: **nâng similarity của kết quả đúng lên trên ngưỡng**, thay vì hạ ngưỡng.
-- [x] **Xác định TRẦN CỨNG ở ngưỡng 0.65 là 84,0%**: 127/793 câu có kết quả gần nhất *tốt nhất* đã dưới 0.65. Vì Chroma trả về theo similarity giảm dần, **tăng `top_k` không cứu được** nhóm này — chỉ nâng similarity mới cứu được.
-- [x] **Chẩn đoán quyết định — bài toán ĐỘ LỚN similarity, không phải xếp hạng**: trong 127 câu đó, đáp án đúng có **median rank 3**, **78% ở rank 1-5**, chỉ thiếu **median 0,045**. Suy ra HNSW tuning / tăng `top_k` / thêm reranker đều **vô ích**. Riêng reranker còn có lý do cấu trúc: ở ngưỡng 0.65 chỉ 3,3 ứng viên/câu qua lọc, **ít hơn k=4**, nên mọi ứng viên đã nằm trong top-4 — rerank không thể đổi Recall@4.
-- [x] **Nguyên nhân gốc**: một vector cho cả Điều làm **loãng tín hiệu**. Spearman(similarity, độ dài Điều) = **−0,312**; nhóm Điều dài nhất fail **37%** so với **15%** ở nhóm ngắn nhất (2,5x tệ hơn).
-- [x] **Tài nguyên đã trả tiền mà để không**: **165.393 Clause** đã parse và lưu từ ĐỢT 3 nhưng **chưa bao giờ embed**.
-- [x] **Pilot thiết kế tránh thiên vị**: đo *độ lớn similarity* (không đo Recall) — vì nếu chỉ embed Khoản của đáp án đúng rồi đo Recall thì đáp án đúng được lợi thế mà distractor không có. Kết quả: 39/81 câu đang fail (48%) vượt được 0.65.
-- [x] ⚠️ **PILOT DỰ ĐOÁN SAI GẤP 3 LẦN**: dự đoán +4,9 điểm %, thực tế **+1,6 điểm %**. Lý do: pilot không thể phản ánh **cạnh tranh xếp hạng** — vector Khoản cũng nâng similarity của distractor (bằng chứng: ứng viên TB tăng **6,0 → 17,1**). Tôi có nêu hạn chế này nhưng vẫn trích +4,9 như *dự đoán* thay vì gọi đúng bản chất là **giới hạn trên**. Bài học: pilot đo một chiều thì phải phát biểu là bound, không phải estimate.
-- [x] **Thứ tự triển khai có chủ đích**: sửa `find_entry_points` (gộp vector Khoản về `article_id`, lấy max) **TRƯỚC** khi embed — lúc chưa có vector Khoản thì gộp là no-op, nên verify được không hồi quy (đo lại T018 ra đúng 69,5%/72,5%/0,593 y nguyên).
-- [x] **Embed 32.807/36.065 vector Khoản (91%), quyết định DỪNG phần còn lại.** 3.258 Khoản còn lại là những Khoản **dài nhất** — loãng nhất, ít tác dụng nhất — mà tốn thêm ~3 giờ GPU. Ngoại suy từ 91% chỉ cho +1,6pp thì phần này gần bằng 0.
-- [x] **Tránh được 2 quả mìn nhờ đọc code liên quan trước khi chạy**:
-  1. `reconcile_chroma_with_neo4j` (T027) xoá mọi id Chroma không khớp article_id → sẽ **xoá sạch 36.585 vector Khoản** ở lần migration sau. Đã sửa: map id Khoản về Điều cha trước khi kiểm tra.
-  2. Chroma `DuplicateIDError` ở smoke test → lộ ra **bug có sẵn nghiêm trọng hơn** (mục dưới).
-- [x] 🐛 **BUG CÓ SẴN phát hiện được, chưa sửa**: parser coi mọi dòng `N. ` ở cột 0 là Khoản mới, nên Điều **sửa đổi** (trích lại nguyên văn Điều khác) có `so_khoan` lặp lại: `[1, 1, 2, 2, 17, 18, 3, ...]`. Đo thật: **335/60.568 Điều (0,6%)** bị trùng, và vì `clause_id` trùng + upsert dùng MERGE → **4.149 Clause (2,4%) bị gộp mất âm thầm** trong Neo4j. Nặng nhất `12-2017-qh14_dieu-1` mất **341 Khoản**. Script mới dùng **vị trí** làm id nên không dính bug; **bug gốc chưa sửa** — xem checklist **K1**. Lưu ý: Clause node hiện **không** dùng trong retrieval nên chưa ảnh hưởng chức năng, chỉ ảnh hưởng toàn vẹn dữ liệu.
-- [x] **`MAX_CONTEXT_ARTICLES = 10` chọn theo đường cong bão hoà ĐO ĐƯỢC**, không phải số tuỳ ý:
-
-  | k | 4 | 6 | 8 | **10** | 12 | 15 | 20 |
-  |---|---|---|---|---|---|---|---|
-  | Recall@k | 71,1% | 74,0% | 75,2% | **75,4%** | 75,4% | 75,4% | 75,4% |
-
-  Cắt ở 10 **không mất gì** mà giảm **41%** lượng ngữ cảnh cho LLM.
-- [x] **Sửa luôn một bug tiềm ẩn**: `_build_prompt` và `citation_path` trước đó sắp theo **thứ tự chữ cái** của `article_id`, không liên quan độ liên quan. Chưa lộ ra vì không ai cắt; nhưng khi đã cắt ở 10 thì sẽ giữ 10 Điều **tuỳ ý**. Đã đưa logic xếp hạng về `app/retrieval/ranking.py` để `serving/api.py` và `eval_graph_recall.py` dùng **cùng một nguồn** (trước đó là 2 bản sao — để vậy thì `/chat` và số liệu eval sẽ dần lệch nhau mà không ai biết).
-
-### Số liệu cuối ĐỢT 17
-
-| Phép đo | Trước T028 | Sau T028 |
-|---|---|---|
-| T018 Graph RAG Recall@4 (793 câu) | 69,5% | **71,1%** |
-| T018 recall mở rộng | 72,5% | **75,4%** |
-| T018 MRR | 0,593 | 0,599 |
-| T017 Strict / Lenient (32 câu) | 90,6% / 93,1% | **90,6% / 93,1%** (không đổi) |
-| T017 MRR | 0,917 | **0,901** (giảm nhẹ) |
-| Ứng viên TB | 6,0 | 17,1 → **cắt còn ≤10** |
-
-**Đánh giá thẳng**: cải thiện nhỏ (+1,6pp) kèm chi phí thật (MRR T017 giảm, ngữ cảnh phình rồi phải cắt) — **không phải thắng lợi như dự đoán ban đầu**. Phương án hiệu quả nhất về số liệu thuần vẫn là hạ ngưỡng xuống 0.55 (+11,2pp) nhưng Khang đã loại vì lý do thuyết phục người đọc; ghi lại trong ADR-006.
-
-## 📍 Việc cần làm tiếp theo (đọc phần này trước khi bắt đầu phiên mới)
-
-> Cập nhật lại 2026-08-07 (sau khi đối chiếu với git log + Neo4j thật — mục này trước đó bị lạc hậu so với ĐỢT 13, vẫn ghi "migration bị ngắt" dù đã chạy xong).
-
-1. 🚨 **CHẶN T018 — cần Khang chọn hướng ở I1 trước khi đo benchmark chính thức** (xem `CHECKLIST-GRAPHRAG-DUYET.md` mục I1, ĐỢT 13): graph traversal chỉ đóng góp **+3,1 điểm % / đúng 1 câu** vào Strict recall (dense-only đã 87,5%, có traversal 90,6%) — chưa thực sự chứng minh được luận điểm cốt lõi "Graph RAG hơn Hybrid RAG nhờ multi-hop". 3 hướng: (a) soạn lại bộ câu hỏi multi-hop *đúng nghĩa* (chỉ giữ câu dense-only thất bại) — trung thực nhất, điểm sẽ thấp hơn; (b) giữ bộ 32 câu, ghi rõ bảng tách tầng trong README/T018, không tuyên bố 90,6% là nhờ graph; (c) đổi luận điểm giá trị Graph RAG sang `citation_path`/provenance + AMENDS/SUPERSEDES thay vì Recall. Có thể kết hợp (a)+(c).
-2. ✅ **T018 prep ĐÃ CHẠY THẬT (2026-08-08, ĐỢT 14)** — kết quả thô ở `scripts/quality_fixtures/bm25_backend_bench_61k.txt`. Chốt backend **`bm25s`** (xem đính chính trong ĐỢT 15). `rank_bm25` ở 61k = 351ms/truy vấn (4,6 phút cho 793 câu — không phải rào cản), nhưng `bm25s` nhanh hơn ~360x và Recall@4 cao hơn 6,3 điểm %; khớp thứ hạng giữa 2 backend chỉ ~66% nên **không** phải thay thế trong suốt.
-
-2b. **Baseline Hybrid+Reranker @67k (ĐỢT 15)** — Dense-only **82,1%** / Hybrid RRF **79,2%** trên đủ 793 câu; Hybrid+Reranker đang chạy. **Phát hiện: Hybrid kém hơn Dense-only** ở 67k (ngược dự án cũ ở 10k). Việc còn thiếu để đóng T018:
-   - (a) thêm dòng Hybrid dùng `rank_bm25` (không reranker, ~5 phút) để **lượng hoá** ảnh hưởng backend thay vì để nó thành biến gây nhiễu ẩn;
-   - (b) ⚠️ **CHƯA CÓ**: Graph RAG chạy trên **cùng 793 câu Zalo gold** — hiện `eval_graph_recall.py` chỉ chạy bộ 32 câu multi-hop. Không có dòng này thì **không có so sánh nào cả** (32 câu multi-hop vs 793 câu Zalo là hai benchmark khác nhau, xem ĐỢT 13). Cần mở rộng script nhận gold set Zalo, hoặc viết script riêng tái dùng `load_gold`/`recall_and_mrr` của `bench_bm25_backends.py`;
-   - (c) ghi rõ số 2k/10k của dự án cũ chỉ là **bối cảnh lịch sử**, không phải dòng so sánh trực tiếp.
-3. **T013 (`extract_relations.py`) vẫn CHƯA chạy full corpus** — đã kiểm tra trực tiếp Neo4j (2026-08-07): vẫn chỉ **2 AMENDS / 0 SUPERSEDES / 0 CONFLICTS_WITH** (từ lần chạy subset 3000 file ở ĐỢT 10, TRƯỚC migration T026). Giờ `doc_id` đã nhất quán (migration T026/T027 xong), độ phủ candidate dự kiến cao hơn hẳn con số ước tính cũ (~40/61k) — chạy `python -m scripts.extract_relations data/raw` để lấy số liệu thật, không dùng lại số cũ.
-4. **I2 (nhẹ, không chặn)**: sửa metadata `relationship_path` của câu `mh-030` trong `data/eval/multihop_eval_set.json` — đang mô tả chuỗi REFERENCES tự-tham-chiếu SAI đã bị migration T026 loại bỏ (câu này vốn đã fail từ trước migration nên không ảnh hưởng điểm số, chỉ là lỗi tài liệu).
-5. Chạy thử 1-2 câu hỏi qua `/chat` với thuật ngữ đã có (vd "Ngày", "Đơn PCT", hoặc 1 trong **6,104** Term) để xác nhận DEFINES/USES_TERM thực sự hoạt động trong traversal, không chỉ tồn tại trên lý thuyết — chưa làm.
-6. **T012 ĐÓNG** — T012b đã nâng độ phủ bằng 1 dòng regex, không cần LLM fallback (F2 chốt).
-7. **T009f (backfill embedding)**: đã xong 100% cho 60,568 Article thật hiện tại (8 Article mới sau fix `ð` đã backfill ở ĐỢT 13) — không còn việc tồn đọng ở mục này.
+# 📓 GRAPH RAG — NHẬT KÝ TIẾN ĐỘ PHASE 1 (engine gốc, 2026-08-03 → 08-10)
+
+> **File này ghi lại giai đoạn xây ENGINE GỐC trên corpus Zalo 67k văn bản đa
+> lĩnh vực** (đã xoá khỏi đĩa 2026-08-24 khi pivot sang domain **BHXH/lao
+> động-tiền lương**). Muốn biết **tiến độ hiện tại**, đọc `ROADMAP.md` +
+> `README.md` — hai file đó là nhật ký sống của giai đoạn BHXH. File này giữ
+> lại làm hồ sơ: các quyết định/lỗi thật đã đúc kết thành ADR/sổ bẫy đọc ở
+> `specs/001-graph-rag-core/research.md` (khuyến khích đọc research.md trước,
+> vì phần lớn bài học "tổng quát hoá được" đã chuyển qua đó). File này chỉ
+> còn narrative rút gọn theo mốc thời gian.
+
+## Dòng thời gian rút gọn
+
+**ĐỢT 1-2 (08-03)** — Brainstorm hướng đi (chọn Graph RAG thay Microsoft GraphRAG/NetworkX), viết constitution/spec/plan/tasks/data-model. Chốt: `MAX_HOP=2`, Article không lưu full text (chỉ preview + `chroma_id` trỏ Chroma), quy mô tăng từ đề xuất 2k/10k lên **toàn bộ 67k văn bản** kèm batch+savepoint (ADR-002).
+
+**ĐỢT 3 (08-03)** — Triển khai Phase 1+2 (T001-T009d): scaffold, Neo4j client, `reference_extractor.py`/`structure_parser.py`/`upsert.py` (TDD, 83/83 test). Phát hiện quan trọng bằng dữ liệu thật (447 văn bản mẫu): **corpus thật là per-Article chunk** (1 file = 1 Điều), khác giả định ban đầu Document→Chương→Điều→Khoản đầy đủ — sửa bằng `parse_article_chunk()`. Test kill -9 thật xác nhận resume đúng (SC-005).
+
+**ĐỢT 4 (08-04)** — Ingest full 61,068 văn bản thật (60,679 Article/3,203 Document/37,875 REFERENCES). Phát hiện gap: chưa task nào ghi embedding vào Chroma → thêm `embedder.py`+`backfill_embeddings.py` (T009f), bắt được bug Chroma thiếu `hnsw:space=cosine` trước khi chạy full. `entry_point.py`/`traversal.py`/`serving/api.py` (`POST /chat`) hoàn tất — checkpoint thật qua API xác nhận multi-hop hoạt động. 32 câu eval multi-hop (`build_multihop_eval_set.py`) — Khang duyệt chính thức.
+
+**ĐỢT 5 (08-05)** — Chẩn đoán GPU embedding chỉ nhanh hơn CPU 1.1x (kỳ vọng 5-8x) — 2 nguyên nhân thật: HF Hub network check khi init model (fix `HF_HUB_OFFLINE=1`) + batch không sort theo độ dài khiến outlier kéo chậm cả batch (fix sort + cap batch theo tầng độ dài). Sau fix: GPU nhanh hơn CPU 7.3-8.5 lần, đúng kỳ vọng.
+
+**ĐỢT 6-7 (08-05)** — `term_extractor.py` (T012, DEFINES/USES_TERM rule-based). Mở rộng độ phủ 2 lần bằng khảo sát dữ liệu thật (6→844 file có định nghĩa trích được, không cần LLM) — quyết định không đầu tư LLM fallback.
+
+**ĐỢT 8 (08-06)** — Backfill embedding full 60,679 Article hoàn tất 100%, xác nhận khớp tuyệt đối Neo4j↔Chroma.
+
+**ĐỢT 9 (08-06)** — `eval_graph_recall.py` (T017), baseline đầu 59.4% dưới mục tiêu 80%. Điều tra: ngưỡng similarity 0.75 lọc oan >50% kết quả đúng → hạ xuống 0.65 sau khi đọc tay 10/10 case lật + held-out split-half → 90.6%/93.1%/MRR 0.917 (ADR-004, sau này phát hiện lại không suy rộng được ra tập lớn hơn — xem research.md).
+
+**ĐỢT 10 (08-06)** — `relation_llm.py` (T013, AMENDS/SUPERSEDES/CONFLICTS_WITH). Verify thật trên 3000 file. 2 phát hiện lớn: (1) độ phủ candidate rất thấp vì regex trích dẫn không khớp mẫu "của"/"số"; (2) bug thật ảnh hưởng TOÀN BỘ REFERENCES — slug từ tên trích dẫn không khớp `doc_id` từ tên file (~1.4% external placeholder là "giả").
+
+**ĐỢT 11-12 (08-06)** — Khang chốt 5 điểm treo. `term_extractor` mở rộng thêm (T012 đóng hẳn). `doc_identity.py` (T025) suy `Document.title/so_hieu/loai_vb` từ tên file — phát hiện corpus không có tiêu đề văn bản ở đâu cả. Bug thật TDD bắt được: chữ `ð` (eth, khác `đ`) làm 119 Article không bao giờ được trích dẫn chéo tìm thấy. T026 sửa gốc rễ slug (bug ĐỢT 10 hoá ra nghiêm trọng hơn nhiều: chỉ 0.47% trích dẫn resolve đúng cross-document, không phải 1.4%). `migrate_references.py` (T027, script duy nhất xoá dữ liệu thật, mặc định dry-run). Lỗi thật của Claude: sai tên hàm `get_or_create_collection` làm hỏng 119 bản ghi Chroma — sửa bằng cách đổi cơ chế sang reconcile 2 chiều thay vì chỉ sửa tên hàm (chi tiết ở research.md sổ bẫy).
+
+**ĐỢT 13 (08-07)** — Migration T027 chạy xong hoàn toàn, mọi số liệu khớp đúng bảng đã tính trước. **Phát hiện lớn**: graph traversal chỉ đóng góp +3.1 điểm % (đúng 1/58 câu) vào Strict recall trên bộ 32 câu — dense-only đã đạt 87.5%. Đặt câu hỏi trực tiếp vào luận điểm cốt lõi của dự án (đã giải quyết ở giai đoạn sau — xem ĐỢT 16-17).
+
+**ĐỢT 14-15 (08-08)** — Đo backend BM25 thật ở 61k (`bm25s` nhanh hơn `rank_bm25` ~360x, Recall@4 cao hơn 6.3pp nhưng chỉ khớp thứ hạng ~66% — không phải thay thế trong suốt). T018 (so Graph RAG với Hybrid+Reranker baseline tự đo ở 67k) — bắt được 1 lỗi số liệu sai trước khi vào báo cáo (checkpoint không ghi số câu hỏi, y hệt lớp lỗi `BatchSizeMismatchError` cũ — xem research.md ADR-002). Phát hiện: Hybrid RRF kém hơn Dense-only ở 67k (ngược 10k của dự án trước) vì BM25 yếu ở quy mô lớn kéo dense mạnh xuống.
+
+**ĐỢT 16 (08-08)** — T018 đủ số liệu, cùng 793 câu/cùng metric (ADR-005). **Phát hiện lớn nhất**: `SIMILARITY_THRESHOLD=0.65` (đã qua xác minh nghiêm ngặt ở ĐỢT 9) làm mất **12.3 điểm %** Recall@4 trên tập 793 câu lớn hơn — bài học về suy rộng cỡ mẫu (research.md ADR-004).
+
+**ĐỢT 17 (08-10)** — T028: rà soát toàn tuyến embedding (theo yêu cầu, KHÔNG hạ thêm ngưỡng). Chẩn đoán đúng bản chất bài toán (độ lớn similarity, không phải xếp hạng) bằng tương quan Spearman với độ dài Điều. Thêm vector cấp Khoản cho Điều dài + giới hạn ngữ cảnh `MAX_CONTEXT_ARTICLES=10` theo đường cong bão hoà đo được. Kết quả nhỏ hơn dự đoán 3 lần (+1.6pp thay vì +4.9pp dự đoán) — bài học: pilot đo một chiều là giới hạn trên, không phải ước lượng (research.md ADR-006).
+
+## 🔀 Bước ngoặt — Pivot sang BHXH (2026-08-20+)
+
+Sau ĐỢT 17, dự án dừng mở rộng corpus 67k đa lĩnh vực và pivot sang domain hẹp hơn nhưng **luôn đúng luật hiện hành**: BHXH → mở rộng lao động-tiền lương. Lý do (đúc kết trong `ROADMAP.md`): "dữ liệu nhỏ + đúng > dữ liệu lớn + lỗi thời" — corpus Zalo 2021 đã lỗi thời, không phân biệt được luật còn/hết hiệu lực. Toàn bộ dữ liệu + phần lớn script đặc thù Zalo đã xoá; engine (Neo4j/Chroma/traversal/reranker) giữ lại làm nền.
+
+**Từ đây, đọc `ROADMAP.md` (lộ trình + trạng thái hiện tại) và `README.md` (số liệu đánh giá mới nhất) — không cập nhật thêm vào file này.**

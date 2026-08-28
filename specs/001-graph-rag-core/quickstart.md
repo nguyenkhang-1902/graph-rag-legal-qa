@@ -1,4 +1,9 @@
-# 🚦 Quickstart — Nghiệm thu thủ công Graph RAG Legal QA
+# 🚦 Quickstart — Nghiệm thu thủ công (Phase 1: engine gốc, corpus Zalo cũ)
+
+> **Corpus Zalo 67k trong các bước dưới đã bị xoá.** Với hệ thống BHXH hiện
+> tại, nghiệm thu qua `python -m scripts.build_corpus` (xem README) rồi gọi
+> `POST /chat` hoặc chạy `scripts/eval_bhxh_*.py`. Giữ file này làm ví dụ cách
+> viết kịch bản nghiệm thu theo từng Phase.
 
 Chạy sau khi implement xong từng nhóm task trong `tasks.md`. Mỗi bước: hành động → kết quả mong đợi → mã tham chiếu.
 
