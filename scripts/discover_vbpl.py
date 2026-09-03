@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import argparse
 import re
+import time
 
 from playwright.sync_api import TimeoutError as PWTimeout
 from playwright.sync_api import sync_playwright
@@ -38,6 +39,15 @@ _SEARCH_BOX_PLACEHOLDER = "Nhập từ khóa tìm kiếm"
 _RESULT_ITEM = "li.ant-list-item"
 _RESULT_TITLE = "[class*='documentTitle']"
 _RESULT_CLICKABLE = "span.cursor-pointer"
+
+# Politeness: vbpl.vn rate-limit/chan IP neu ban request don dap (bai hoc
+# 2026-08-27: freshness soat 19 van ban khong nghi -> bi chan ca detail lan
+# search). Caller lam NHIEU search lien tiep PHAI nghi `SEARCH_DELAY_SECONDS`
+# giua cac lan (xem check_corpus_freshness). Moi lan load trang cham thi
+# retry co backoff (khong hammer).
+SEARCH_DELAY_SECONDS = 3.0
+_LOAD_RETRIES = 2
+_LOAD_BACKOFF_SECONDS = 5.0
 
 # Radio "Tim trong" tren trang chu (input[name='searchIn']): mac dinh
 # "title" (Tieu de). "number" (So hieu) -> tim CHINH XAC theo ma van ban
@@ -99,8 +109,20 @@ def search_vbpl(
         browser = p.chromium.launch(headless=headless)
         ctx = browser.new_context(user_agent=_UA, locale="vi-VN")
         page = ctx.new_page()
-        page.goto(_HOME, wait_until="load", timeout=40000)
-        page.wait_for_timeout(2000)
+        # Load trang chu + DOI search box thuc su render (SPA vbpl fetch data
+        # cham/thi thoang treo o man "Dang tai du lieu"). Retry co backoff
+        # neu box chua xuat hien - lich su, khong hammer. Het luot -> raise.
+        box_selector = f"input[placeholder='{_SEARCH_BOX_PLACEHOLDER}']"
+        for attempt in range(_LOAD_RETRIES + 1):
+            try:
+                page.goto(_HOME, wait_until="load", timeout=40000)
+                page.wait_for_selector(box_selector, timeout=nav_timeout_ms)
+                break
+            except PWTimeout:
+                if attempt >= _LOAD_RETRIES:
+                    browser.close()
+                    raise
+                time.sleep(_LOAD_BACKOFF_SECONDS * (attempt + 1))
 
         if search_in != "title":  # "title" la mac dinh, khong can doi
             page.check(f"input[name='searchIn'][value='{search_in}']")

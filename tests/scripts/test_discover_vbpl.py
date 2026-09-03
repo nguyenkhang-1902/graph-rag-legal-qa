@@ -39,3 +39,15 @@ def test_looks_like_so_hieu():
     assert looks_like_so_hieu("60/2025/TT-BYT")
     assert not looks_like_so_hieu("lương tối thiểu vùng")
     assert not looks_like_so_hieu("Nghị định 145")
+
+
+def test_politeness_constants_sane():
+    # Politeness (tranh vbpl chan IP): phai co delay giua cac search + retry
+    # co backoff cho load trang. Test khoa gia tri hop ly (khong test mang).
+    from scripts.discover_vbpl import (
+        SEARCH_DELAY_SECONDS,
+        _LOAD_BACKOFF_SECONDS,
+        _LOAD_RETRIES,
+    )
+    assert SEARCH_DELAY_SECONDS >= 1.0, "delay giua cac search phai du de khong bi chan"
+    assert _LOAD_RETRIES >= 1 and _LOAD_BACKOFF_SECONDS >= 1.0

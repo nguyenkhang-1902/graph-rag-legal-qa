@@ -19,9 +19,10 @@ from __future__ import annotations
 
 import argparse
 import re
+import time
 
 from app.graph_store.neo4j_client import Neo4jClient
-from scripts.discover_vbpl import search_vbpl
+from scripts.discover_vbpl import SEARCH_DELAY_SECONDS, search_vbpl
 
 # Phan loai trang_thai LIVE tu vbpl.vn (chuoi tieng Viet trong ket qua search).
 STATUS_CURRENT = "current"    # Con hieu luc
@@ -87,9 +88,12 @@ def main() -> None:
     if args.max:
         docs = docs[: args.max]
 
-    print(f"[freshness] kiem {len(docs)} van ban tren vbpl.vn ...\n")
+    print(f"[freshness] kiem {len(docs)} van ban tren vbpl.vn "
+          f"(nghi {SEARCH_DELAY_SECONDS}s/lan cho lich su)...\n")
     flagged: list[str] = []
     for i, d in enumerate(docs, 1):
+        if i > 1:  # nghi giua cac lan search -> tranh bi vbpl chan IP
+            time.sleep(SEARCH_DELAY_SECONDS)
         status, raw = _live_status(d["so_hieu"])
         icon = {
             STATUS_CURRENT: "OK  ",
