@@ -52,6 +52,11 @@ OLLAMA_MODEL: str = os.getenv("OLLAMA_MODEL", "qwen2.5:7b-instruct")
 # thap de tra loi bam ngu canh, it bia (P3).
 OLLAMA_NUM_CTX: int = int(os.getenv("OLLAMA_NUM_CTX", "8192"))
 OLLAMA_TEMPERATURE: float = float(os.getenv("OLLAMA_TEMPERATURE", "0.2"))
+# Timeout mot lan goi Ollama generate. Mac dinh 120s du cho lan dau (load
+# model ~12s). Tang khi chay batch (vd eval) tren may cham/tranh chap GPU:
+# bge-m3 + qwen-7b co the vuot 6GB VRAM -> Ollama reload model giua cac lan
+# goi -> tung lan cham hon. Override bang env OLLAMA_TIMEOUT_SECONDS.
+OLLAMA_TIMEOUT_SECONDS: float = float(os.getenv("OLLAMA_TIMEOUT_SECONDS", "120"))
 
 # --- Reranker (cross-encoder, P3) ---
 # Sau entry-point (dense) + traversal, cham diem lai ung vien theo query bang

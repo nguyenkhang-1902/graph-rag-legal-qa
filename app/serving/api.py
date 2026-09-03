@@ -52,8 +52,9 @@ _NOT_FOUND_ANSWER = "Không tìm thấy điều luật liên quan trong dữ li�
 
 # Lan goi generate() dau tien tren may nay mat ~12s (phan lon la load model
 # vao Ollama, xem "load_duration" trong response that da verify) - timeout
-# du rong de khong cat ngang mot lan goi that dang chay binh thuong.
-_OLLAMA_TIMEOUT_SECONDS = 120.0
+# du rong de khong cat ngang mot lan goi that dang chay binh thuong. Cau
+# hinh qua config (env OLLAMA_TIMEOUT_SECONDS) de tang khi batch/tranh chap.
+_OLLAMA_TIMEOUT_SECONDS = config.OLLAMA_TIMEOUT_SECONDS
 
 # Danh dau ro trong prompt cho 2 truong hop noi dung KHONG day du (case 1/3
 # trong task-3e-brief.md) - de model KHONG nham preview rut gon hoac
