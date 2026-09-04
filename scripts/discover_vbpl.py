@@ -45,9 +45,9 @@ _RESULT_CLICKABLE = "span.cursor-pointer"
 # search). Caller lam NHIEU search lien tiep PHAI nghi `SEARCH_DELAY_SECONDS`
 # giua cac lan (xem check_corpus_freshness). Moi lan load trang cham thi
 # retry co backoff (khong hammer).
-SEARCH_DELAY_SECONDS = 3.0
+SEARCH_DELAY_SECONDS = 6.0
 _LOAD_RETRIES = 2
-_LOAD_BACKOFF_SECONDS = 5.0
+_LOAD_BACKOFF_SECONDS = 8.0
 
 # Radio "Tim trong" tren trang chu (input[name='searchIn']): mac dinh
 # "title" (Tieu de). "number" (So hieu) -> tim CHINH XAC theo ma van ban
