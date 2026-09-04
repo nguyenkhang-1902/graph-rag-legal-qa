@@ -15,7 +15,7 @@ Hệ hỏi–đáp pháp luật **lao động – tiền lương – bảo hiể
 | Điều | **988** |
 | Khoản | **3.205** |
 
-> **Cập nhật 2026-08-26**: `scripts/check_corpus_freshness.py` phát hiện **Luật Việc làm 2013 (38/2013/QH13) đã hết hiệu lực toàn bộ** — đã thay bằng **Luật Việc làm 2025 (74/2025/QH15, hiệu lực 01/01/2026)**. Đây là lý do số liệu QA bên dưới thay đổi so với lần đo trước.
+> **Cập nhật 2026-08-27**: `scripts/check_corpus_freshness.py` phát hiện văn bản hết hiệu lực trong corpus → đã thay bằng bản hiện hành: **Luật Việc làm 2013 → 2025 (74/2025/QH15)** và **NĐ 75/2024 → NĐ 162/2026** (điều chỉnh lương hưu). Số QA **86.4%** bên dưới đo sau khi thay Luật Việc làm; lần thay NĐ 162/2026 chỉ đổi **1 câu** eval (đo lại khi tiện, sai lệch không đáng kể).
 
 ### Truy xuất (retrieval) — bộ 30 câu, gold Điều xác minh từ tiêu đề
 | Chỉ số | Không rerank | Có rerank (production) |

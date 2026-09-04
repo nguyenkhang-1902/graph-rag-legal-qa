@@ -42,7 +42,8 @@ Nguyên tắc xuyên suốt:
 - [x] **Nền discovery** (`scripts/discover_vbpl.py`): resolver số hiệu → URL chi tiết vbpl.vn (tìm theo "Số hiệu" chính xác), kèm `trạng_thái` hiệu lực — human-in-the-loop. Crawler thêm retry/backoff + bỏ nhanh trang "không tồn tại" (`fetch_bhxh_corpus.py`).
 - [x] **Phát hiện văn bản hết hiệu lực** (`scripts/check_corpus_freshness.py`): soát từng văn bản corpus ↔ trạng_thái LIVE vbpl.vn. **Chạy thật (2026-08-26): 3/19 hết hiệu lực TOÀN BỘ** — Luật Việc làm 38/2013, TT 20/2023, NĐ 75/2024 — + 5 hết hiệu lực một phần.
 - [x] **Luật Việc làm 38/2013 → 74/2025** đã thay xong thủ công (2026-08-27): fetch + ingest + embed + cập nhật gold 2 bộ eval, RECONCILE OK. Xem README "Vì sao 89.1%→86.4%".
-- [ ] **CÒN 2/3 văn bản hết hiệu lực toàn bộ chưa thay**: TT 20/2023, NĐ 75/2024 — + 5 hết hiệu lực một phần chưa rà.
+- [x] **NĐ 75/2024 → NĐ 162/2026** đã thay xong (2026-08-27): điều chỉnh lương hưu +15%/01·7·2024 (hết hiệu lực) → +8%/01·7·2026 (hiện hành); rewrite 1 câu eval MC, RECONCILE OK.
+- [ ] **CÒN 1/3 văn bản hết hiệu lực toàn bộ chưa thay**: TT 20/2023 (mức điều chỉnh tiền lương đóng BHXH — TT hệ số theo năm, 0 câu eval, chưa thấy bản 2025 rõ trên vbpl) — + 5 hết hiệu lực một phần chưa rà.
 - [ ] Tự động crawl + ingest + đánh dấu `superseded` cho văn bản hết hiệu lực (dùng freshness ở trên làm đầu vào) — hiện đang làm thủ công từng văn bản một (xem dòng trên)
 - [ ] Temporal Resolver: cảnh báo khi có chuyển tiếp luật
 
