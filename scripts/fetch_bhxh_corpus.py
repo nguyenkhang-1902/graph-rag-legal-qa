@@ -155,8 +155,11 @@ BHXH_CORPUS_URLS: list[dict] = [
         "che_do": ["tai_nan_lao_dong"],  # ND 88/2020 BH TNLD-BNN
     },
     {
-        "url": _B + "nghi-dinh-so-75-2024-nd-cp-dieu-chinh-luong-huu-tro-cap-bao-hiem-xa-hoi-va-tro-cap-hang-thang--168671",
-        "che_do": ["huu_tri"],  # ND 75/2024 dieu chinh luong huu
+        # ND 162/2026 dieu chinh luong huu (+8% tu 01/7/2026), THAY THE ND
+        # 75/2024 (+15% tu 01/7/2024, da het hieu luc toan bo - phat hien
+        # qua check_corpus_freshness 2026-08-27).
+        "url": _B + "nghi-dinh-so-162-2026-nd-cp-dieu-chinh-luong-huu-tro-cap-bao-hiem-xa-hoi-va-tro-cap-hang-thang--2d2f4fe0-59a4-11f1-88ec-354c1d3c22f4",
+        "che_do": ["huu_tri"],  # ND 162/2026 dieu chinh luong huu
     },
     {
         "url": _B + "thong-tu-so-20-2023-tt-bldtbxh-quy-dinh-muc-dieu-chinh-tien-luong-va-thu-nhap-thang-da-dong-bao-hiem-xa-hoi--167036",
