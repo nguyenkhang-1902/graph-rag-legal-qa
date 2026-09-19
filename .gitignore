@@ -29,3 +29,7 @@ docker-volumes/
 # ket qua. Ket qua chinh thuc nam o *_result.json (khong co dau gach duoi dau).
 scripts/quality_fixtures/_*checkpoint.json
 scripts/dev/auto-pull.log
+
+# archify visual-check sidecars (regenerable evidence)
+docs/diagrams/*.visual-check.*
+docs/diagrams/*.png

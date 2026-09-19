@@ -46,6 +46,7 @@ Nguyên tắc xuyên suốt:
 - [ ] **CÒN 1/3 văn bản hết hiệu lực toàn bộ chưa thay**: TT 20/2023 (mức điều chỉnh tiền lương đóng BHXH — TT hệ số theo năm, 0 câu eval, chưa thấy bản 2025 rõ trên vbpl) — + 5 hết hiệu lực một phần chưa rà.
 - [ ] Tự động crawl + ingest + đánh dấu `superseded` cho văn bản hết hiệu lực (dùng freshness ở trên làm đầu vào) — hiện đang làm thủ công từng văn bản một (xem dòng trên)
 - [ ] Temporal Resolver: cảnh báo khi có chuyển tiếp luật
+- [x] **Sự cố hạ tầng thật, đã fix (2026-09-03/04)**: (1) `check_corpus_freshness` soát 19 văn bản liên tiếp không nghỉ → vbpl.vn chặn IP — thêm `SEARCH_DELAY_SECONDS` (3s→6s sau khi tinh chỉnh) + retry/backoff cho `discover_vbpl.py`. (2) Eval batch (rerank bật) bị `httpx.ReadTimeout` — bge-m3 + qwen-7b tranh VRAM 6GB khiến Ollama thỉnh thoảng reload model giữa các lần gọi, vượt timeout cứng 120s — chuyển `OLLAMA_TIMEOUT_SECONDS` sang `.env` (mặc định vẫn 120s, tăng lên khi chạy batch).
 
 ### 🕸️ Giai đoạn 3 — Cross-doc multi-hop
 - [ ] Name-alias resolution (trích "Luật Bảo hiểm xã hội" theo tên → nối đúng node)
