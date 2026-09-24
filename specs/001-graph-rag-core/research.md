@@ -49,6 +49,26 @@
 
 **Lần 2 (bộ 793 câu, quy mô lớn hơn nhiều — 2026-08-10)**: cùng ngưỡng 0.65 lại làm **mất 12.3 điểm % Recall@4** (81.8% → 69.5%) so với tắt lọc hoàn toàn. **Bài học quan trọng nhất của ADR này**: hiệu chỉnh ngưỡng trên tập 32 câu — dù đã làm đúng quy trình xác minh (đọc tay, held-out split-half) — **không suy rộng được** ra tập 793 câu. Cỡ mẫu nhỏ có thể vượt qua mọi bài kiểm tra thống kê hợp lý (không overfit theo nghĩa thông thường) mà vẫn không đại diện đủ cho phân phối thật của câu hỏi đa dạng hơn. **Áp dụng cho lần hiệu chỉnh ngưỡng sau này**: luôn đo lại trên tập lớn nhất có sẵn trước khi coi một ngưỡng là "đã chốt", không dừng ở tập nhỏ dù đã xác minh kỹ.
 
+## 🗒️ ADR-005: So sánh 2 hệ thống chỉ có ý nghĩa khi cùng điều kiện đo
+
+**Status:** Accepted · **Date:** 2026-08-08
+
+**Bối cảnh:** T018 so Graph RAG với baseline Hybrid+Reranker tự đo ở 67k văn bản. Trước khi công bố số liệu, phát hiện checkpoint của `eval_hybrid_reranker_baseline.py` không ghi lại số câu hỏi đã dùng (cùng lớp lỗi với `BatchSizeMismatchError` ở ADR-002) — resume giữa chừng khiến 2/3 chiến lược đo trên 793 câu, chiến lược còn lại đo nhầm trên 50 câu, rồi in cạnh nhau như thể so sánh được.
+
+**Quyết định:** thêm `QuestionCountMismatchError` (áp lại nguyên tắc ADR-002: checkpoint phải ghi tham số chia việc, không chỉ tiến độ) + chốt quy tắc chung cho mọi so sánh hệ thống sau này.
+
+**Quy tắc rút ra:** so sánh 2 hệ thống chỉ có ý nghĩa khi **cùng bộ câu hỏi, cùng metric, cùng quy mô corpus** — nếu một trong ba biến này khác nhau, đặt 2 con số cạnh nhau là so sai, dù mỗi con số riêng lẻ đều đo đúng.
+
+## 🗒️ ADR-006: Pilot đo một chiều là giới hạn trên, không phải ước lượng
+
+**Status:** Accepted · **Date:** 2026-08-10
+
+**Bối cảnh:** T028 — rà soát toàn tuyến embedding theo yêu cầu (không hạ thêm `SIMILARITY_THRESHOLD`, xem ADR-004). Chẩn đoán đúng bản chất bài toán là **độ lớn similarity** (không phải xếp hạng) bằng tương quan Spearman với độ dài Điều. Fix: thêm vector cấp Khoản cho Điều dài + giới hạn ngữ cảnh `MAX_CONTEXT_ARTICLES=10` theo đường cong bão hoà đo được từ dữ liệu pilot.
+
+**Phát hiện:** kết quả thật sau khi triển khai đầy đủ nhỏ hơn 3 lần so với dự đoán từ pilot (+1.6pp thay vì +4.9pp dự đoán trên tập pilot).
+
+**Bài học:** một pilot đo one-shot/one-directional (chỉ đo chiều "fix sẽ cải thiện bao nhiêu" mà không đo lại điều kiện thật khi triển khai đầy đủ) cho ra **giới hạn trên (upper bound)**, không phải ước lượng đáng tin cho kết quả cuối. Luôn coi số liệu pilot là "tối đa có thể", chiết khấu xuống khi lên kế hoạch, và đo lại đầy đủ sau khi triển khai thay vì dừng ở ngoại suy.
+
 ## 🪤 Sổ bẫy (pitfall log) — áp dụng được cho mọi dataset/project sau này
 
 - **Chroma mặc định HNSW space là L2, không phải cosine** — nếu không set `metadata={"hnsw:space": "cosine"}` lúc tạo collection, `SIMILARITY_THRESHOLD` (giả định cosine 0..1) sẽ vô nghĩa. Chỉ áp dụng lúc **tạo mới** collection — `get_or_create_collection` im lặng bỏ qua nếu collection tên đó đã tồn tại với metric khác.
@@ -69,4 +89,3 @@
 - **LLM extraction chạy 1 lần lúc ingest, không cache lại theo mỗi query** — thuộc tính tĩnh của văn bản, không đổi theo câu hỏi người dùng.
 - **Rule-based trước, LLM fallback sau** cho mọi loại extraction có thể — giữ chi phí ingest thấp, chỉ dùng LLM cho phần thực sự cần hiểu ngữ nghĩa.
 - **Đo trên tập benchmark lớn nhất có sẵn trước khi chốt bất kỳ ngưỡng/tham số nào** — bài học trực tiếp từ ADR-004: một quyết định đã qua xác minh nghiêm ngặt trên tập nhỏ vẫn có thể sai trên tập lớn hơn.
-- **So sánh 2 hệ thống chỉ có ý nghĩa khi cùng bộ câu hỏi, cùng metric, cùng quy mô corpus** — nếu một trong ba biến này khác nhau, đặt 2 con số cạnh nhau là so sai, dù mỗi con số riêng lẻ đều đo đúng.
